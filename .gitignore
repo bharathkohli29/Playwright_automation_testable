@@ -1,0 +1,22 @@
+# secrets and sessions — never commit these
+.env
+.env.*
+!.env.example
+.auth/
+
+# generated output
+node_modules/
+results/
+test-results/
+playwright-report/
+blob-report/
+
+# local notes / transcripts
+testable-merge-flow-conversation.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+teams-job.json

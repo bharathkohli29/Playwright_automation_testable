@@ -1,0 +1,20 @@
+{
+  "name": "testable-merge-flow",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "setup": "playwright test tests/auth.setup.ts",
+    "s3": "playwright test --project=s3 --no-deps"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^20.14.0",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "typescript": "^5.5.4"
+  }
+}
