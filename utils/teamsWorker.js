@@ -40,9 +40,14 @@ async function post(payload) {
   const text = JSON.parse(JSON.stringify(job.payload));
   const body = text.attachments[0].content.body;
   if (img) body.push({ type: 'Image', url: `data:image/jpeg;base64,${img}`, altText: 'failure screenshot', size: 'Stretch' });
+  // up to 4 tries (with the picture, then once without it), waiting 4 s / 10 s / 20 s between tries, so a short network blip does not lose the message
   let ok = false;
-  try { ok = await post(text); } catch (e) { log(`post failed: ${e && e.message}`); }
-  if (!ok && img) { body.pop(); try { ok = await post(text); } catch (e) { log(`post (text only) failed: ${e && e.message}`); } }
+  const waits = [0, 4000, 10000, 20000];
+  for (let n = 0; n < waits.length && !ok; n++) {
+    if (waits[n]) await new Promise((r) => setTimeout(r, waits[n]));
+    try { ok = await post(text); } catch (e) { log(`try ${n + 1} failed: ${e && e.message}`); }
+    if (!ok && img && n === 2) { body.pop(); log('trying without the picture'); }
+  }
   log(ok ? `failure message sent${img ? ' with screenshot' : ''}` : 'could not send the failure message');
   process.exit(0);
 })().catch((e) => { log(`worker error: ${e && e.message}`); process.exit(0); });

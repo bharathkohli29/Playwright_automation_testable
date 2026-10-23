@@ -38,6 +38,15 @@ const card = (body: unknown[], url?: string, evidence?: string) => ({
   }],
 });
 
+/** post with up to 4 tries (4 s / 10 s / 20 s apart) so a short network blip does not lose the message */
+async function postRetry(payload: unknown): Promise<boolean> {
+  for (const wait of [0, 4000, 10000, 20000]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try { if (await post(payload)) return true; } catch (e) { console.log(`  Teams: try failed (${e instanceof Error ? e.message : e})`); }
+  }
+  return false;
+}
+
 async function post(payload: unknown): Promise<boolean> {
   const res = await fetch(process.env.TEAMS_WEBHOOK_URL!.trim(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000) });
   if (!res.ok) console.log(`  Teams: post was rejected (HTTP ${res.status})`);
@@ -51,11 +60,11 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
     const where = `${i.repo ? `${i.repo} · ` : ''}${env}${i.minutes !== undefined ? ` · ${i.minutes} min` : ''}`;
     const url = i.url && /^https?:/i.test(i.url) ? i.url : undefined;
     if (i.status === 'passed') {
-      await post(card([
+      const sent = await Promise.race([postRetry(card([
         { type: 'TextBlock', text: `✅ Branch ${i.branch} successfully completed its executions`, weight: 'Bolder', wrap: true },
         { type: 'TextBlock', text: where, isSubtle: true, wrap: true, spacing: 'Small' },
-      ], url, i.evidenceUrl));
-      console.log('  Teams: success message sent');
+      ], url, i.evidenceUrl)), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
+      console.log(sent ? '  Teams: success message sent' : '  Teams: success message could not be sent (the run continues)');
       return;
     }
     const reason = (i.note || 'no reason captured').replace(/\s+/g, ' ').trim().slice(0, 600);
@@ -71,9 +80,14 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
     const jobFile = path.join(dir, 'teams-job.json');
     fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
     const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true });
-    child.on('error', () => {});
+    // wait (max 2 min) until the separate sender process has finished, so the message is out before the next branch starts.
+    // The sender is its own process: if it crashes or hangs, the run just carries on after the wait.
+    const done = new Promise<void>((resolve) => { child.on('error', () => resolve()); child.on('exit', () => resolve()); });
+    console.log('  Teams: sending the failure message …');
+    await Promise.race([done, new Promise<void>((r) => setTimeout(r, 120_000))]);
     child.unref();
-    console.log('  Teams: failure message is being sent in the background (the next branch continues now)');
+    let log = ''; try { log = fs.readFileSync(path.join(dir, 'teams-notify.log'), 'utf8').trim().split('\n').pop() || ''; } catch { /* ignore */ }
+    console.log(`  Teams: ${log || 'sender finished'}`);
   } catch (e) {
     console.log(`  Teams: not sent (${e instanceof Error ? e.message : e}) — the run is not affected`);
   }
