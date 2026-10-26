@@ -23,6 +23,9 @@ fs.mkdirSync(path.join(DATA, 'logs'), { recursive: true });
 const TOKEN = require('crypto').randomBytes(16).toString('hex');
 try { fs.writeFileSync(path.join(DATA, 'ingest.json'), JSON.stringify({ port: PORT, token: TOKEN })); } catch { /* ignore */ }
 let lastIngest = 0;
+let cur = null; // { child, runDir, ids, started, logFile }
+let activeNow = ''; // branch folder the run is working in right now (newest activity, no result yet)
+let pendingSync = false; // builds.json rewrite postponed because a Test Explorer run is in progress
 let lastLineAt = Date.now(); // when the last output line arrived (for the stuck-run watchdog)
 
 // ---------- state ----------
@@ -53,6 +56,10 @@ function fairOrder() {
   return out;
 }
 function syncBuilds() {
+  // never rewrite builds.json under a run that was started from the Test Explorer: its lines are still arriving (< 4 min ago).
+  // The change is applied as soon as the run has been quiet for 4 minutes.
+  if (!cur && lastIngest && Date.now() - lastIngest < 4 * 60 * 1000) { pendingSync = true; return; }
+  pendingSync = false;
   try {
     const bak = path.join(DATA, 'builds.original.json');
     if (!fs.existsSync(bak) && fs.existsSync(buildsFile)) fs.copyFileSync(buildsFile, bak); // your own list is kept once
@@ -62,7 +69,6 @@ function syncBuilds() {
 }
 const save = () => { try { writeAtomic(stateFile, JSON.stringify(S, null, 2)); } catch { /* ignore */ } syncBuilds(); };
 if (S.items.some((i) => i.status === 'waiting')) syncBuilds(); // show the waiting branches in builds.json right at start
-let cur = null; // { child, runDir, ids, started, logFile }
 let lines = []; // output lines of the current/last round (kept in memory + file)
 const clients = new Set();
 
@@ -192,12 +198,12 @@ function startRound() {
   child.stdout.on('data', (d) => emit(d.toString()));
   child.stderr.on('data', (d) => emit(d.toString()));
   child.on('error', (e) => emit(`!! could not start the run: ${e.message}`));
-  const poll = setInterval(() => { applySummary(); save(); ping(); }, 5000);
+  const poll = setInterval(() => { applySummary(); activeNow = activeBranchIn(cur ? cur.runDir : ''); save(); ping(); }, 5000);
   child.on('close', (code) => {
     clearInterval(poll);
     applySummary();
     const noStart = [];
-    for (const id of cur.ids) { const it = S.items.find((x) => x.id === id); if (it.status === 'running') { noStart.push(it); it.status = cur.stopped ? 'stopped' : 'failed'; it.note = it.note || (cur.stopped ? 'stopped from the PC' : `no result written (exit code ${code})`); it.finished = new Date().toISOString(); } }
+    for (const id of cur.ids) { const it = S.items.find((x) => x.id === id); if (it.status === 'running' && cur.recover) { it.retries = (it.retries || 0) + 1; if (it.retries >= 2) { it.status = 'failed'; it.note = 'froze twice — skipped'; it.finished = new Date().toISOString(); } else { it.status = 'waiting'; delete it.started; it.note = 'restarted after a freeze'; } continue; } if (it.status === 'running') { noStart.push(it); it.status = cur.stopped ? 'stopped' : 'failed'; it.note = it.note || (cur.stopped ? 'stopped from the PC' : `no result written (exit code ${code})`); it.finished = new Date().toISOString(); } }
     emit(`=== Round ${S.round} finished (exit code ${code}) ===`);
     if (code !== 0 && !cur.stopped) { // crashed / failed: say why, from the last error lines of the output
       const errs = lines.filter((l) => /Error|Timeout|failed|ECONN|ENOTFOUND|expired|Expired|denied|crash|closed|Target page|browser has been closed/i.test(l)).slice(-3).map((l) => l.trim().slice(0, 200));
@@ -217,6 +223,8 @@ function startRound() {
 
 // ---------- runs started outside the queue (VS Code Test Explorer) + stuck-run watchdog ----------
 const RESULTS = path.join(ROOT, 'results');
+const RECOVER_START_MIN = Number(process.env.QUEUE_RECOVER_START_MIN || 6); // frozen right at a branch start
+const RECOVER_MAX_MIN = Number(process.env.QUEUE_RECOVER_MAX_MIN || 50); // any silence longer than a full QA run
 const STUCK_MIN = Number(process.env.QUEUE_STUCK_MIN || 8); // minutes without any output / new file before the terminal explains what the run is waiting for
 function newestRunDir() {
   try {
@@ -243,6 +251,7 @@ function lastFileChange(dir) {
 function watchExternal() {
   if (cur) return;
   const dir = newestRunDir(); if (!dir) return;
+  activeNow = activeBranchIn(dir);
   const sum = readSummary(dir);
   let changed = false;
   for (const it of S.items) {
@@ -253,19 +262,42 @@ function watchExternal() {
     let st = 0; try { st = fs.statSync(path.join(dir, 'summary.json')).mtimeMs; } catch { /* no summary yet */ }
     const addedAt = Date.parse(it.addedAt || '') || 0;
     if (r && (bt > addedAt || st > addedAt)) { it.status = r.status; it.minutes = r.minutes; it.note = r.note || ''; it.finished = new Date().toISOString(); changed = true; emit(`Queue: ${it.person}'s ${it.branch} finished in the Test Explorer run → ${r.status}${r.minutes ? ` (${r.minutes} min)` : ''}`); }
-    else if (!r && bt > addedAt && Date.now() - lastFileChange(bdir).t < 15 * 60 * 1000 && it.status === 'waiting') { it.status = 'running'; it.started = it.started || new Date().toISOString(); changed = true; }
+    else if (!r && it.branch === activeNow && lastFileChange(bdir).t > addedAt && it.status === 'waiting') { it.status = 'running'; it.started = it.started || new Date().toISOString(); changed = true; }
+    else if (!r && it.status === 'running' && it.branch !== activeNow && !cur) { it.status = 'waiting'; changed = true; } // the run moved on / stopped without a result
   }
   if (changed) { save(); ping(); }
+}
+/** the branch being worked on: newest activity in a branch folder of the run folder that has no result in summary.json yet */
+function activeBranchIn(dir) {
+  try {
+    const done = new Set(readSummary(dir).map((x) => x.branch));
+    let best = { n: '', t: 0 };
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || ['evidence', 'gates'].includes(e.name) || done.has(e.name)) continue;
+      const t = lastFileChange(path.join(dir, e.name)).t;
+      if (t > best.t) best = { n: e.name, t };
+    }
+    return best.n && Date.now() - best.t < 20 * 60 * 1000 ? best.n : '';
+  } catch { return ''; }
 }
 let warnedFor = 0;
 /** Prints WHY a run seems stuck (nothing printed and no new file for STUCK_MIN minutes) with the most likely cause. */
 function watchdog() {
   const external = lastIngest && Date.now() - lastIngest < 90 * 60 * 1000;
   if (!cur && !external) return;
-  const dir = cur ? cur.runDir : newestRunDir(); if (!dir || !fs.existsSync(dir)) return;
-  const fc = lastFileChange(dir);
+  const dir = cur ? cur.runDir : newestRunDir(); if (!dir) return;
+  const fc = fs.existsSync(dir) ? lastFileChange(dir) : { t: 0, f: '' };
   const lastOut = Math.max(lastLineAt, fc.t);
   const idle = Date.now() - lastOut;
+  // auto-recover (queue-started rounds only): a branch that froze right at its start, or any run silent for a very long time
+  if (cur && !cur.stopped && !cur.recover) {
+    const ll = [...lines].reverse().find((l) => l.trim()) || '';
+    const atStart = /repo sync|dummy PR|start-of-analysis|Change repository/i.test(ll);
+    if ((atStart && idle >= RECOVER_START_MIN * 60000) || idle >= RECOVER_MAX_MIN * 60000) {
+      emit(`⚠ AUTO-RECOVER: no output and no new file for ${Math.round(idle / 60000)} min (${atStart ? 'froze at the start of a branch' : 'silent too long'}). Stopping this run; finished branches stay finished, the rest go back to waiting and restart automatically.`);
+      cur.recover = true; stopRound(); return;
+    }
+  }
   if (idle < STUCK_MIN * 60 * 1000) { warnedFor = 0; return; }
   if (Date.now() - warnedFor < 10 * 60 * 1000) return; // repeat at most every 10 minutes
   warnedFor = Date.now();
@@ -287,13 +319,15 @@ function watchdog() {
     }
   } catch { /* ignore */ }
   const lastLine = [...lines].reverse().find((l) => l.trim()) || '(nothing printed yet)';
+  // the last thing printed beats the folder guess: a new branch that has not created its folder yet
+  if (/repo sync|dummy PR|start-of-analysis|Change repository/i.test(lastLine)) { step = 'a branch is starting (opening the repository list on the site)'; cause = 'The run printed its last line at the START of a branch and then went silent, with no error. Playwright limits every click to 20 s, so a normal failure would have printed an error by now — this usually means the browser or test process froze or was closed (PC sleep / lock screen, the browser window closed, or the VS Code test run was stopped). Look at the Playwright browser window; if it is gone or frozen, stop the run and start the remaining branches again (queue: type start).'; }
   emit(`⚠ NO PROGRESS for ${mins} min — ${step}`);
   emit(`   Last file written: ${fc.f || '(none)'} at ${fc.t ? new Date(fc.t).toLocaleTimeString() : '-'}`);
   emit(`   Last output line: ${lastLine.slice(0, 160)}`);
   emit(`   Most likely cause: ${cause}`);
   lastLineAt = keepAt; // the warning itself is not progress
 }
-setInterval(() => { try { watchExternal(); watchdog(); } catch { /* never break the queue */ } }, 5000);
+setInterval(() => { try { if (pendingSync) syncBuilds(); watchExternal(); watchdog(); } catch { /* never break the queue */ } }, 5000);
 
 function stopRound() {
   if (!cur) return false;
@@ -317,7 +351,8 @@ function view() {
     else p.failed++;
   }
   const next = pickRound().map((i) => i.id);
-  return { running: !!cur, held: S.paused, round: S.round, startedAt: cur ? cur.started : null, next, items: S.items.slice(-400), people: Object.values(people) };
+  const now = cur ? activeBranchIn(cur.runDir) : activeNow;
+  return { running: !!cur, held: S.paused, round: S.round, startedAt: cur ? cur.started : null, next, now, items: S.items.slice(-400).map((i) => (i.status === 'running' ? { ...i, active: i.branch === now } : i)), people: Object.values(people) };
 }
 
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
