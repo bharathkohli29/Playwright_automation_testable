@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Branch queue</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e3e1da;--acc:#1f5eff;--ok:#1a7f4b;--bad:#c0392b;--warn:#b26a00}
+@media(prefers-color-scheme:dark){:root{--bg:#16161a;--card:#202026;--ink:#ececef;--mute:#9a9aa4;--line:#33333c;--acc:#6f95ff;--ok:#4cc48a;--bad:#ff7b6b;--warn:#f0b24d}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,sans-serif}
+header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);flex-wrap:wrap}
+header h1{font-size:17px;margin:0 8px 0 0}header a{color:var(--mute);text-decoration:none;padding:4px 10px;border-radius:6px}header a.on{background:var(--bg);color:var(--ink)}
+main{max-width:1100px;margin:0 auto;padding:20px;display:grid;gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+h2{font-size:15px;margin:0 0 10px}
+label{font-size:13px;color:var(--mute);display:block;margin-bottom:4px}
+input,textarea,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:110px;font:13px/1.4 ui-monospace,Consolas,monospace}
+button{padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5}
+.row{display:grid;grid-template-columns:200px 1fr;gap:14px}@media(max-width:700px){.row{grid-template-columns:1fr}}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sp{flex:1}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;border:1px solid var(--line)}
+.waiting{color:var(--mute)}.running{color:var(--acc);border-color:var(--acc)}.passed{color:var(--ok);border-color:var(--ok)}.blocked,.failed,.environment,.stopped{color:var(--bad);border-color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--mute);font-weight:600}
+td.br{font:13px ui-monospace,Consolas,monospace;word-break:break-all}.mute{color:var(--mute);font-size:13px}.msg{margin-top:8px;font-size:14px}.err{color:var(--bad)}.okc{color:var(--ok)}
+tr.next td:first-child{box-shadow:inset 3px 0 var(--warn)}
+.scroll{overflow-x:auto}
+</style></head><body>
+<header><h1>Branch queue</h1><a class="on" href="/">Queue</a><a href="/output">Live output</a><span class="sp"></span><span id="status" class="mute">loading…</span>
+</header>
+<main>
+<section class="card"><h2>Add branches</h2>
+<div class="row"><div><label for="name">Your name</label><input id="name" maxlength="40" placeholder="e.g. Bharath"></div>
+<div><label for="links">GitHub branch links (one per line)</label><textarea id="links" placeholder="https://github.com/owner/repo/tree/BRANCH_NAME"></textarea></div></div>
+<div class="bar" style="margin-top:10px"><button class="pri" id="add">Add to queue</button><span class="mute">Branches run one per person in turn, so everyone gets a branch every round. The owner starts and stops the queue.</span></div>
+<div id="msg" class="msg"></div></section>
+
+<section class="card"><div class="bar"><h2 style="margin:0">Who added what</h2><span class="sp"></span><button id="copy">Copy summary</button></div>
+<div class="scroll"><table><thead><tr><th>Person</th><th>Added</th><th>Waiting</th><th>Running</th><th>Passed</th><th>Blocked</th><th>Failed</th></tr></thead><tbody id="people"></tbody></table></div></section>
+
+<section class="card"><div class="bar"><h2 style="margin:0">Queue</h2><span class="sp"></span>
+<select id="fp" style="width:auto"><option value="">All people</option></select>
+<select id="fs" style="width:auto"><option value="">Active (waiting + running)</option><option value="all">All, including finished</option><option>waiting</option><option>running</option><option>passed</option><option>blocked</option><option>failed</option></select></div>
+<div class="scroll"><table><thead><tr><th>#</th><th>Person</th><th>Branch</th><th>Status</th><th>Min</th><th>Note</th></tr></thead><tbody id="q"></tbody></table></div>
+<p class="mute">Orange bar = in the next round. A branch the site cannot find shows as <b>blocked</b>.</p></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let st=null;
+try{$('name').value=localStorage.getItem('qname')||''}catch(e){}
+$('name').addEventListener('input',()=>{try{localStorage.setItem('qname',$('name').value)}catch(e){}});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function draw(){
+ if(!st)return;
+ $('status').textContent=st.running?`Running round ${st.round}…`:st.held?'Waiting for the owner to start the queue':'Idle — waiting for branches';
+ $('people').innerHTML=st.people.map(p=>`<tr><td>${esc(p.person)}</td><td>${p.added}</td><td>${p.waiting}</td><td>${p.running}</td><td class="okc">${p.passed}</td><td>${p.blocked}</td><td>${p.failed}</td></tr>`).join('')||'<tr><td colspan=7 class="mute">Nobody has added a branch yet.</td></tr>';
+ const fp=$('fp'),keep=fp.value;fp.innerHTML='<option value="">All people</option>'+st.people.map(p=>`<option>${esc(p.person)}</option>`).join('');fp.value=keep;
+ const rows=st.items.slice().reverse().filter(i=>(!fp.value||i.person===fp.value)&&($('fs').value==='all'||(!$('fs').value?(i.status==='waiting'||i.status==='running'):i.status===$('fs').value)));
+ $('q').innerHTML=rows.map(i=>`<tr class="${st.next.includes(i.id)?'next':''}"><td>${i.id}</td><td>${esc(i.person)}</td><td class="br">${esc(i.branch)}<div class="mute">${esc(i.repo)}</div></td><td><span class="pill ${i.status}">${i.status}</span></td><td>${i.minutes??''}</td><td class="mute">${esc((i.note||'').slice(0,140))}</td></tr>`).join('')||'<tr><td colspan=6 class="mute">Nothing waiting or running.</td></tr>';
+}
+async function post(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return {ok:r.ok,j:await r.json().catch(()=>({}))}}
+$('add').onclick=async()=>{const m=$('msg');m.className='msg';m.textContent='';const r=await post('/api/add',{person:$('name').value,links:$('links').value});
+ if(!r.ok){m.className='msg err';m.textContent=r.j.error||'Could not add.';return}
+ m.innerHTML=(r.j.added.length?`<span class="okc">Added ${r.j.added.length}: ${esc(r.j.added.join(', '))}</span>`:'')+(r.j.skipped.length?`<div class="err">Skipped: ${esc(r.j.skipped.join('; '))}</div>`:'');
+ if(r.j.added.length)$('links').value=''};
+$('fp').onchange=$('fs').onchange=draw;
+$('copy').onclick=()=>{if(!st)return;const t='Branch queue summary\n'+st.people.map(p=>`${p.person}: ${p.added} added — ${p.passed} passed, ${p.blocked} blocked, ${p.failed} failed, ${p.waiting} waiting`).join('\n');navigator.clipboard&&navigator.clipboard.writeText(t);$('copy').textContent='Copied';setTimeout(()=>$('copy').textContent='Copy summary',1500)};
+const es=new EventSource('/events');es.addEventListener('state',e=>{st=JSON.parse(e.data);draw()});
+setInterval(()=>fetch('/api/state').then(r=>r.json()).then(j=>{st=j;draw()}).catch(()=>{}),15000);
+</script></body></html>

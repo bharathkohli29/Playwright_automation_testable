@@ -126,7 +126,7 @@ const PY: TechniqueTool[] = [
     { classes: ['Condition Coverage'], primary: ['pymcdc'], secondary: ['mccabe'] },
     { classes: ['Maintainability Analysis'], primary: ['radon', 'lizard'], secondary: ['mccabe'] },
     { classes: ['Test Prioritization'], primary: ['testmon'], secondary: ['mccabe'] } ] },
-  m('Readability / Maintainability', 'Cognitive Complexity', 'cognitive-ast', 'radon_cc'),
+  m('Readability / Maintainability', 'Cognitive Complexity', 'complexipy', 'cognitive-ast'), // complexipy replaced the legacy cognitive-ast
   m('Code Quality Auditing', 'Code Duplication', 'jscpd-py', 'copydetect'),
   m('Static Code Analysis', 'Lint / Rule Violations', 'pylint', 'flake8'),
   { ...m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'bandit'), rowsOnly: true, rows: [
@@ -140,7 +140,7 @@ const PY: TechniqueTool[] = [
     { classes: ['Nested Condition Path Testing', 'Loop Path Detection', 'Unreachable Path Detection', 'Exception Path Handling', 'Multi-Function Path Tracking', 'CI/CD Integration Test'], primary: ['coverage-py'], secondary: ['coverage_paths'] } ] },
   m('Mutation Testing', 'Mutation Score', 'cosmic-ray', 'mutmut'),
   m('Test Regression/Coverage Analysis', 'Coverage Delta', 'py-coverage-delta', 'coveragepy'),
-  { ...m('Data Flow Testing', 'All Definition Coverage', 'py-all-defs-uses', 'pyflakes'), rowsOnly: true, rows: [
+  { ...m('Data Flow Testing', 'All Definition Coverage', 'py-all-defs-uses', 'pyflakes'), rows: [
     { classes: ['Variable Definition Detection', 'Coverage Measurement'], primary: ['py-all-defs-uses'], secondary: ['pyflakes'] },
     { classes: ['Definition-Use Mapping'], primary: ['coverage-py'], secondary: ['pyflakes'] },
     { classes: ['Uncovered Definition Detection'], primary: ['pylint'], secondary: ['pyflakes'] },

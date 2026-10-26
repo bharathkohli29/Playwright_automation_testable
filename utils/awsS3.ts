@@ -12,10 +12,21 @@ export class S3Reader {
     this.client = new S3Client({ region });
   }
 
+  /** Every S3 call gets a time limit — a stalled connection (or a key that expired while a call was in flight) used to hang the run for ever. */
+  private async send<T>(cmd: any, ms = 60_000): Promise<T> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), ms);
+    try { return (await this.client.send(cmd, { abortSignal: ac.signal })) as T; }
+    catch (e: any) {
+      if (ac.signal.aborted) throw new Error(`S3 call timed out after ${ms / 1000}s (network stalled, or the AWS keys expired while it was running)`);
+      throw e;
+    } finally { clearTimeout(timer); }
+  }
+
   /** Fails early with a readable message when the keys are missing / expired / not allowed. */
   async check(prefix: string): Promise<void> {
     try {
-      await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, MaxKeys: 1 }));
+      await this.send<any>(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, MaxKeys: 1 }));
     } catch (e: any) {
       const n = e?.name || '';
       if (/ExpiredToken|InvalidToken|InvalidAccessKeyId|SignatureDoesNotMatch|CredentialsProviderError/i.test(n) || /credential/i.test(e?.message || ''))
@@ -29,7 +40,7 @@ export class S3Reader {
     const folders: string[] = []; const files: string[] = [];
     let token: string | undefined;
     do {
-      const r = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token }));
+      const r = await this.send<any>(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token }));
       (r.CommonPrefixes || []).forEach((c) => c.Prefix && folders.push(c.Prefix));
       (r.Contents || []).forEach((c) => c.Key && c.Key !== prefix && files.push(c.Key));
       token = r.IsTruncated ? r.NextContinuationToken : undefined;
@@ -51,19 +62,19 @@ export class S3Reader {
   }
 
   async readText(key: string): Promise<string> {
-    const r = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    const r = await this.send<any>(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return r.Body!.transformToString();
   }
 
   /** Whole file as bytes (any type), for saving an exact copy. */
   async readBytes(key: string): Promise<Uint8Array> {
-    const r = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    const r = await this.send<any>(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
     return r.Body!.transformToByteArray();
   }
 
   /** First bytes of a file (for the s3-files.json overview). */
   async readHead(key: string, bytes = 1500): Promise<string> {
-    const r = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=0-${bytes - 1}` }));
+    const r = await this.send<any>(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=0-${bytes - 1}` }));
     return r.Body!.transformToString();
   }
 }

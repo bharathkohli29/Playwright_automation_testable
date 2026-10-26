@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import * as path from 'path';
 import { TEST_ENV, baseUrl, authFile } from './utils/env'; // also loads .env (override: true)
+try { require('./queue-server/mirror'); } catch { /* optional: copies the log lines to the queue's live page; does nothing when the queue is not running */ }
 
 if (!process.env.RUN_DIR) {
   const d = new Date();
@@ -15,6 +16,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 0,
+  maxFailures: 0, // a failed branch never stops the run: the next branch always starts
   timeout: (RUN_TIMEOUT_MIN + 5) * 60_000,
   expect: { timeout: 20_000 },
   reporter: [['list'], ['html', { open: 'never' }]],

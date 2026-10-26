@@ -5,7 +5,8 @@
   "scripts": {
     "test": "playwright test",
     "setup": "playwright test tests/auth.setup.ts",
-    "s3": "playwright test --project=s3 --no-deps"
+    "s3": "playwright test --project=s3 --no-deps",
+    "queue": "node queue-server/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0"

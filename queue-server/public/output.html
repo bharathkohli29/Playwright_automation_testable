@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live output</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e3e1da}
+@media(prefers-color-scheme:dark){:root{--bg:#16161a;--card:#202026;--ink:#ececef;--mute:#9a9aa4;--line:#33333c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);flex-wrap:wrap}
+header h1{font-size:17px;margin:0 8px 0 0}header a{color:var(--mute);text-decoration:none;padding:4px 10px;border-radius:6px}header a.on{background:var(--bg);color:var(--ink)}
+.sp{flex:1}.mute{color:var(--mute);font-size:13px}
+#term{flex:1;overflow:auto;margin:14px 20px;padding:14px;background:#0f1115;color:#d7dae0;border-radius:12px;font:13px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.ok{color:#5fd39a}.bad{color:#ff8a7a}.hd{color:#7fa7ff;font-weight:600}.dim{color:#8a8f99}
+label{font-size:13px;color:var(--mute)}
+</style></head><body>
+<header><h1>Branch queue</h1><a href="/">Queue</a><a class="on" href="/output">Live output</a><span class="sp"></span><span id="status" class="mute">connecting…</span><label><input type="checkbox" id="auto" checked> follow</label></header>
+<div id="term">Waiting for output…</div>
+<script>
+const t=document.getElementById('term'),auto=document.getElementById('auto');let first=true;
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function cls(l){if(/^===/.test(l))return 'hd';if(/(✓|✅|\bok \d|PASS|passed)/.test(l)&&!/fail/i.test(l))return 'ok';if(/(✘|❌|⛔|\bx +\d|FAIL|BLOCKED|Error|failed)/.test(l))return 'bad';if(/^\s+(Teams|SharePoint|S3)/.test(l))return 'dim';return ''}
+function add(l){const d=document.createElement('div');d.className=cls(l);d.innerHTML=esc(l)||'&nbsp;';t.appendChild(d);while(t.childNodes.length>6000)t.removeChild(t.firstChild)}
+function follow(){if(auto.checked)t.scrollTop=t.scrollHeight}
+const es=new EventSource('/events');
+es.addEventListener('init',e=>{t.innerHTML='';JSON.parse(e.data).forEach(add);if(!t.childNodes.length)t.textContent='No run yet — add a branch on the Queue page.';first=false;follow()});
+es.onmessage=e=>{if(first)return;if(t.childNodes.length===1&&t.firstChild.nodeType===3)t.innerHTML='';add(JSON.parse(e.data));follow()};
+es.addEventListener('state',e=>{const s=JSON.parse(e.data);document.getElementById('status').textContent=s.running?`Running round ${s.round}`:s.held?'Held — owner has not started the queue':'Idle'});
+es.onerror=()=>{document.getElementById('status').textContent='reconnecting…'};
+</script></body></html>

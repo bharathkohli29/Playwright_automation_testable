@@ -53,6 +53,13 @@ async function post(payload: unknown): Promise<boolean> {
   return res.ok;
 }
 
+/** The sender gets a clean environment: nothing Playwright put there for the test run (PW_*, NODE_OPTIONS, loaders) can reach it. */
+function cleanEnv(): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^(PW_|PLAYWRIGHT_(?!BROWSERS_PATH)|NODE_OPTIONS$|ELECTRON_|VSCODE_)/i.test(k)) e[k] = v;
+  return e;
+}
+
 export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
   if (!teamsEnabled()) return;
   try {
@@ -79,7 +86,7 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
     const dir = i.imagePath ? path.dirname(i.imagePath) : process.cwd();
     const jobFile = path.join(dir, 'teams-job.json');
     fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
-    const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true });
+    const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true, env: cleanEnv() });
     // wait (max 2 min) until the separate sender process has finished, so the message is out before the next branch starts.
     // The sender is its own process: if it crashes or hangs, the run just carries on after the wait.
     const done = new Promise<void>((resolve) => { child.on('error', () => resolve()); child.on('exit', () => resolve()); });

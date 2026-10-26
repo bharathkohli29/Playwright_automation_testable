@@ -1,6 +1,6 @@
 import type { Language } from './techniqueTools';
 /** Rules that turn the json found in a tool folder into a result. */
-export type Verdict = 'PASS' | 'EMPTY' | 'FAIL';
+export type Verdict = 'PASS' | 'EMPTY' | 'FAIL' | 'NA';
 
 const emptyish = (v: unknown): boolean => {
   if (v === null || v === undefined || v === '' || v === 0 || v === false) return true;

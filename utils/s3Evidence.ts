@@ -3,6 +3,7 @@ import * as path from 'path';
 import { S3Reader } from './awsS3';
 import { Language, TechniqueTool, parseLanguages, toolsFor } from './techniqueTools';
 import { mergeTaxonomy } from './mergeTaxonomy';
+import { validatePython, summaryLine } from './pyValidate';
 import { analyseFile, detectLanguages, verdict, Verdict } from './s3Check';
 
 function branchLanguages(bd: string): { languages: Language[]; source: string; ignored: string[] } {
@@ -47,11 +48,17 @@ export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): 
   fs.writeFileSync(path.join(bd, 's3-folders.json'), JSON.stringify(inventory, null, 2));
   // short excerpt of every json / xml in the run (s3-files.json) — to review what each tool really wrote
   const heads: Record<string, string> = {};
-  let nHeads = 0;
+  let nHeads = 0; let headFails = 0;
   for (const [folder, files] of Object.entries(inventory)) {
     for (const f of files) {
       if (!/\.(json|xml|txt)$/i.test(f) || nHeads >= 200) continue;
-      try { heads[`${folder}${f}`] = await s3.readHead(`${base}${folder}${f}`); nHeads++; } catch { /* ignore */ }
+      try { heads[`${folder}${f}`] = await s3.readHead(`${base}${folder}${f}`); nHeads++; }
+      catch (e: any) {
+        headFails++;
+        if (headFails <= 2) console.log(`  S3 read problem (${folder}${f}): ${e?.name || ''} ${String(e?.message || e).slice(0, 140)}`);
+        if (/ExpiredToken|InvalidToken|InvalidAccessKeyId/i.test(`${e?.name} ${e?.message}`)) throw new Error('AWS keys expired while reading the S3 evidence — copy fresh keys from the AWS portal (QA-S3-Readonly → Access keys) into .env and run the "S3 evidence" test again (S3_FORCE=1 if it was already checked).');
+        if (headFails >= 5) throw new Error(`S3 reads keep failing (${headFails} files) — last: ${String(e?.message || e).slice(0, 140)}`);
+      }
     }
   }
   fs.writeFileSync(path.join(bd, 's3-files.json'), JSON.stringify(heads, null, 2));
@@ -161,8 +168,14 @@ export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): 
     } catch { failed++; }
   }
   console.log(`  Saved ${saved} more file(s) so s3-evidence has every file of the run${failed ? ` (${failed} could not be read)` : ''}`);
-  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, checks: rows }, null, 2));
+  // Python branch: judge every tool against the Python-version matrix and what its file must hold (never fails the run)
+  let python: any = null;
+  try {
+    python = validatePython(bd, rows, inventory);
+    if (python) console.log(`  Python tool validation: ${summaryLine(python)}`);
+  } catch (e) { console.log(`  Python tool validation skipped: ${e instanceof Error ? e.message : e}`); }
+  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, python, checks: rows }, null, 2));
   const c = (v: Verdict) => rows.filter((x) => x.result === v).length;
   mergeTaxonomy(bd); // taxonomy report + UI value + S3 tool / comment columns
-  console.log(`  → ${bd}\\s3-check.json   (PASS ${c('PASS')}, EMPTY ${c('EMPTY')}, FAIL ${c('FAIL')})`);
+  console.log(`  → ${bd}\\s3-check.json   (PASS ${c('PASS')}, EMPTY ${c('EMPTY')}, FAIL ${c('FAIL')}${c('NA') ? `, N/A ${c('NA')}` : ''})`);
 }

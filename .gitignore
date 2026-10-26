@@ -20,3 +20,5 @@ Thumbs.db
 .vscode/
 *.log
 teams-job.json
+
+queue-server/data/
