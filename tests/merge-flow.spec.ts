@@ -114,7 +114,7 @@ builds.forEach((build, index) => {
       if (fs.existsSync(`${bdir}/run-details.json`)) {
         if (!hasAwsCredentials()) console.log('  S3 check skipped — no AWS keys in .env (paste the QA-S3-Readonly keys, or run npm run s3 later)');
         else {
-          try { console.log('\n  S3 evidence for this branch …'); await checkBranchS3(bdir); }
+          try { console.log('\n  S3 evidence for this branch …'); await checkBranchS3(bdir, undefined, build.repo); }
           catch (e) { console.log(`  S3 check failed (site run is not affected): ${e instanceof Error && e.message ? e.message : describeAwsError(e)}`); }
         }
       }

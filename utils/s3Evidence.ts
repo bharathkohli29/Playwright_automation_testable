@@ -4,6 +4,7 @@ import { S3Reader } from './awsS3';
 import { Language, TechniqueTool, parseLanguages, toolsFor } from './techniqueTools';
 import { mergeTaxonomy } from './mergeTaxonomy';
 import { validatePython, summaryLine } from './pyValidate';
+import { writeBugReports } from './bugReport';
 import { analyseFile, detectLanguages, verdict, Verdict } from './s3Check';
 
 function branchLanguages(bd: string): { languages: Language[]; source: string; ignored: string[] } {
@@ -34,7 +35,7 @@ export const hasAwsCredentials = () => !!(process.env.AWS_ACCESS_KEY_ID || proce
  * S3 evidence for ONE branch folder (needs run-details.json in it): reads the tool folders of that run,
  * writes s3-check.json / s3-folders.json / s3-evidence/ and rebuilds the taxonomy report with the S3 columns.
  */
-export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): Promise<void> {
+export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader(), repo?: string): Promise<void> {
   const r = JSON.parse(fs.readFileSync(path.join(bd, 'run-details.json'), 'utf8'));
   const base = `development/cell-001/${r.tenant_id}/${r.project_id}/${r.repository_id}/${r.branch_id}/${r.branch_name}/${r.commit_sha}/${r.run_id}/`;
   await s3.check(base);
@@ -174,8 +175,13 @@ export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): 
     python = validatePython(bd, rows, inventory);
     if (python) console.log(`  Python tool validation: ${summaryLine(python)}`);
   } catch (e) { console.log(`  Python tool validation skipped: ${e instanceof Error ? e.message : e}`); }
-  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, python, checks: rows }, null, 2));
+  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ repo: repo || '', branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, python, checks: rows }, null, 2));
   const c = (v: Verdict) => rows.filter((x) => x.result === v).length;
   mergeTaxonomy(bd); // taxonomy report + UI value + S3 tool / comment columns
+  // bug drafts (PDF + screenshot + Jira text) for the platform defects of a Python branch — saved in <branch>/bugs, never filed, never fails the run
+  try {
+    const made = await writeBugReports(bd, repo);
+    if (made.length) console.log(`  Bug drafts: ${made.length} platform defect(s) → ${bd}\\bugs  (${made.join(', ')})`);
+  } catch (e) { console.log(`  Bug drafts skipped: ${e instanceof Error ? e.message : e}`); }
   console.log(`  → ${bd}\\s3-check.json   (PASS ${c('PASS')}, EMPTY ${c('EMPTY')}, FAIL ${c('FAIL')}${c('NA') ? `, N/A ${c('NA')}` : ''})`);
 }

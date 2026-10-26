@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { S3Reader } from '../utils/awsS3';
 import { checkBranchS3 } from '../utils/s3Evidence';
+import { loadBuilds } from '../utils/builds';
 
 /**
  * For every branch folder of a results run that has run-details.json:
@@ -49,6 +50,7 @@ test('S3 evidence — tool folders per language and technique', async () => {
       const same = JSON.parse(fs.readFileSync(path.join(bd, 'run-details.json'), 'utf8')).run_id === JSON.parse(fs.readFileSync(done, 'utf8')).run_id;
       if (same) { console.log(`  ${b}: S3 already checked during the site run (set S3_FORCE=1 to redo)`); continue; }
     }
-    await checkBranchS3(bd, s3);
+    const repoOf = (() => { try { return loadBuilds().find((x) => x.dir === b)?.repo; } catch { return undefined; } })();
+    await checkBranchS3(bd, s3, repoOf);
   }
 });
