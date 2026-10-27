@@ -21,4 +21,13 @@ Thumbs.db
 *.log
 teams-job.json
 
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated deliverables
+Executive_Architecture_Review.pdf
+Tool_Execution_Results.xlsx
+
 queue-server/data/

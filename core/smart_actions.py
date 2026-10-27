@@ -1,5 +1,6 @@
+import time
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 class ActionIntent(str, Enum):
     AUTH = "AUTH"
@@ -80,3 +81,45 @@ class SmartActionResolver:
             "button:has-text('...')",
             "button:has-text('…')"
         ]
+
+    def click_intent(
+        self,
+        page: Any,
+        intent: ActionIntent | str,
+        fallback_text: Optional[str] = None,
+        timeout_ms: int = 5000
+    ) -> bool:
+        """Attempts to click a button by intent, with auto-scroll and 3-dots kebab menu fallback."""
+        selectors = self.resolve_button_selectors(intent, fallback_text=fallback_text)
+
+        # Attempt direct matches first
+        for sel in selectors:
+            try:
+                loc = page.locator(sel).first
+                if loc.is_visible(timeout=1000):
+                    loc.scroll_into_view_if_needed()
+                    loc.click(timeout=timeout_ms)
+                    return True
+            except Exception:
+                continue
+
+        # If not visible directly, attempt unfurling kebab dropdowns (...)
+        for kebab in self.get_kebab_unfurl_selectors():
+            try:
+                k_loc = page.locator(kebab).first
+                if k_loc.is_visible(timeout=500):
+                    k_loc.click()
+                    time.sleep(0.3)
+                    # Re-attempt finding target inside opened dropdown
+                    for sel in selectors:
+                        try:
+                            loc = page.locator(sel).first
+                            if loc.is_visible(timeout=1000):
+                                loc.click(timeout=timeout_ms)
+                                return True
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+        return False
