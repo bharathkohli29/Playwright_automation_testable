@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CI/CD Automation Bot & Zero-Touch Architecture Flow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --text: #f9fafb;
+      --text-muted: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-indigo: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #fb7185;
+      --accent-purple: #c084fc;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 32px 20px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* Hero Banner */
+    .hero {
+      background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+      border: 2px solid #6366f1;
+      border-radius: 16px;
+      padding: 28px 32px;
+      text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.2);
+    }
+    .badge-pill {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .badge-indigo { background: #4f46e5; color: #fff; border: 1px solid #818cf8; }
+    .badge-blue { background: #0284c7; color: #fff; }
+    .badge-emerald { background: #059669; color: #fff; }
+    .badge-amber { background: #d97706; color: #000; }
+    .badge-rose { background: #e11d48; color: #fff; }
+    .badge-purple { background: #7c3aed; color: #fff; }
+
+    .hero h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .hero .subtitle {
+      color: var(--accent-blue);
+      font-weight: 600;
+      font-size: 1.05rem;
+      margin-bottom: 12px;
+    }
+    .hero .meta-bar {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      border-top: 1px solid #312e81;
+      padding-top: 12px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .hero .meta-bar span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Section Headers */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--bg);
+      padding: 5px 14px;
+      border-radius: 6px;
+    }
+
+    /* Grid Layouts */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    /* Cards */
+    .card {
+      background-color: var(--card-bg);
+      border: 1.5px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+    }
+    .card.border-indigo { border-color: var(--accent-indigo); }
+    .card.border-emerald { border-color: var(--accent-emerald); }
+    .card.border-purple { border-color: var(--accent-purple); }
+    .card.border-amber { border-color: var(--accent-amber); }
+    .card.border-rose { border-color: var(--accent-rose); }
+    .card.border-blue { border-color: var(--accent-blue); }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #1f2937;
+    }
+    .card-head h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .card .subtitle-tag {
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .card ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .card ul li {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .card ul li strong {
+      color: var(--text);
+    }
+
+    /* Pipeline 7-Stage Flow */
+    .pipeline-container {
+      background-color: var(--card-bg);
+      border: 1.5px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px;
+    }
+    .pipeline-stages {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      position: relative;
+    }
+    .stage-item {
+      background-color: #1f2937;
+      border: 1.5px solid #374151;
+      border-radius: 10px;
+      padding: 14px 10px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+    .stage-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .stage-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .stage-desc {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+    .pipeline-bottom-bar {
+      margin-top: 14px;
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-align: center;
+      color: var(--accent-blue);
+    }
+
+    /* Zero-Touch Boundary Layout */
+    .boundary-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .boundary-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+    .boundary-box {
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .box-platform {
+      background: #1c1917;
+      border: 2px solid var(--accent-rose);
+    }
+    .box-sensors {
+      background: #064e3b;
+      border: 2px solid var(--accent-emerald);
+    }
+    .box-automation {
+      background: #1e1b4b;
+      border: 2px solid var(--accent-indigo);
+    }
+    .code-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      background: rgba(0,0,0,0.4);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+
+    /* Decision Tree */
+    .decision-container {
+      background: var(--card-bg);
+      border: 1.5px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      gap: 20px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+    .dt-root {
+      flex: 1;
+      min-width: 220px;
+      background: #1e1b4b;
+      border: 1.5px solid var(--accent-indigo);
+      border-radius: 10px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      gap: 8px;
+    }
+    .dt-branches {
+      flex: 3;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .dt-branch {
+      background: #1f2937;
+      border: 1.5px solid #374151;
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: border-color 0.2s;
+    }
+    .dt-branch:hover {
+      border-color: var(--accent-blue);
+    }
+    .dt-branch-badge {
+      min-width: 95px;
+      text-align: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.72rem;
+    }
+    .dt-branch-info {
+      flex: 1;
+    }
+    .dt-branch-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .dt-branch-action {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+    }
+
+    /* Footer Signoff */
+    .footer-signoff {
+      background: #0f172a;
+      border: 2px solid var(--accent-emerald);
+      border-radius: 14px;
+      padding: 24px 30px;
+      text-align: center;
+    }
+    .footer-signoff h3 {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 12px;
+      letter-spacing: 0.02em;
+    }
+    .guarantees-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      text-align: left;
+      margin-top: 14px;
+    }
+    .guarantee-item {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid #1e293b;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.76rem;
+      color: #cbd5e1;
+    }
+    .guarantee-item strong {
+      color: var(--accent-emerald);
+      display: block;
+      margin-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Hero Banner -->
+    <div class="hero">
+      <div class="badge-pill badge-indigo">Option C · Centralized Event-Driven CI/CD Bot</div>
+      <h1>CI/CD AUTOMATION BOT & ZERO-TOUCH ARCHITECTURE</h1>
+      <div class="subtitle">Codebase-Introspective Hybrid Quality Platform · Self-Healing E2E · Automated Jira Delivery</div>
+      <div class="meta-bar">
+        <span>🔒 <strong>Platform Codebase:</strong> 0 Lines Added (Strict Read-Only)</span>
+        <span>⚡ <strong>Execution Cost:</strong> $0/month in Idle State</span>
+        <span>⏱ <strong>Run Duration:</strong> 25–35 Seconds</span>
+        <span>🎯 <strong>Trigger:</strong> GitHub Webhook & AWS S3</span>
+      </div>
+    </div>
+
+    <!-- Section 1: What Bot Do We Use -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-blue);">Section 1 · What Bot Do We Use?</span>
+      </div>
+      <div class="grid-3">
+        <div class="card border-indigo">
+          <div class="card-head">
+            <span class="badge-pill badge-indigo">Runner</span>
+            <h3>Serverless Runner Bot</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-indigo);">GitHub Actions / GitLab CI Runner</div>
+          <ul>
+            <li><strong>Serverless Cloud Container:</strong> Spins up in &lt; 5s upon notification.</li>
+            <li><strong>Isolated Environment:</strong> Pre-configured with Python & Playwright.</li>
+            <li><strong>Automatic Power-Down:</strong> Immediately terminates when done (0% CPU).</li>
+            <li><strong>Universal Access:</strong> Zero personal laptop dependencies or setup.</li>
+          </ul>
+        </div>
+
+        <div class="card border-emerald">
+          <div class="card-head">
+            <span class="badge-pill badge-emerald">Trigger</span>
+            <h3>Smart Diff Trigger Bot</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-emerald);">Git Webhook & S3 Event Watcher</div>
+          <ul>
+            <li><strong>Event-Driven Waking:</strong> Triggers on PR merge or S3 test completion.</li>
+            <li><strong>Smart git diff:</strong> Inspects touched files via <code>git diff HEAD~1</code>.</li>
+            <li><strong>Instant Exit for Docs:</strong> Powers down in 3s if only docs/markdown changed.</li>
+            <li><strong>Precision Targeting:</strong> Runs only relevant tool & route test suites.</li>
+          </ul>
+        </div>
+
+        <div class="card border-purple">
+          <div class="card-head">
+            <span class="badge-pill badge-purple">Jira Bot</span>
+            <h3>Jira Cloud API Bot</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-purple);">Jira REST API v3 Integration</div>
+          <ul>
+            <li><strong>Automated Artifact Upload:</strong> Attaches Excel trackers & 2-page PDFs.</li>
+            <li><strong>Native Jira Pills:</strong> Formats attachments as native badges <code>[^file.ext]</code>.</li>
+            <li><strong>Clear Root Cause:</strong> Categorizes Platform Defects vs Data Defects.</li>
+            <li><strong>100% Team Visibility:</strong> Directly informs managers and engineers.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: 7-Stage Pipeline Lifecycle -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-emerald);">Section 2 · The 7-Stage Execution Lifecycle</span>
+      </div>
+      <div class="pipeline-container">
+        <div class="pipeline-stages">
+          <div class="stage-item" style="border-color: var(--accent-blue);">
+            <div class="stage-num" style="background-color: var(--accent-blue);">1</div>
+            <div class="stage-title" style="color: var(--accent-blue);">Trigger</div>
+            <div class="stage-desc">Code Push / PR or S3 Run Event</div>
+          </div>
+          <div class="stage-item" style="border-color: var(--accent-indigo);">
+            <div class="stage-num" style="background-color: var(--accent-indigo);">2</div>
+            <div class="stage-title" style="color: var(--accent-indigo);">Wake Up</div>
+            <div class="stage-desc">Runner Boots in &lt; 5s</div>
+          </div>
+          <div class="stage-item" style="border-color: #38bdf8;">
+            <div class="stage-num" style="background-color: #38bdf8; color: #000;">3</div>
+            <div class="stage-title" style="color: #38bdf8;">Diff Filter</div>
+            <div class="stage-desc">git diff HEAD~1 Impact Filter</div>
+          </div>
+          <div class="stage-item" style="border-color: var(--accent-emerald);">
+            <div class="stage-num" style="background-color: var(--accent-emerald);">4</div>
+            <div class="stage-title" style="color: var(--accent-emerald);">Sensors</div>
+            <div class="stage-desc">Read AST & Next.js Routes</div>
+          </div>
+          <div class="stage-item" style="border-color: var(--accent-amber);">
+            <div class="stage-num" style="background-color: var(--accent-amber); color: #000;">5</div>
+            <div class="stage-title" style="color: var(--accent-amber);">Validate</div>
+            <div class="stage-desc">Whitebox + Self-Heal E2E</div>
+          </div>
+          <div class="stage-item" style="border-color: var(--accent-purple);">
+            <div class="stage-num" style="background-color: var(--accent-purple);">6</div>
+            <div class="stage-title" style="color: var(--accent-purple);">Reports</div>
+            <div class="stage-desc">PDF Review + Excel Tracker</div>
+          </div>
+          <div class="stage-item" style="border-color: var(--accent-rose);">
+            <div class="stage-num" style="background-color: var(--accent-rose);">7</div>
+            <div class="stage-title" style="color: var(--accent-rose);">Jira Post</div>
+            <div class="stage-desc">Upload Pills & Power Down (0%)</div>
+          </div>
+        </div>
+        <div class="pipeline-bottom-bar">
+          ✦ 100% Autonomous Execution: 25–35 Seconds Total Duration · $0 Idle Cost · Zero Ongoing Script Maintenance
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: Zero-Touch Codebase Architecture -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-rose);">Section 3 · Zero-Touch Platform Architecture</span>
+      </div>
+      <div class="boundary-layout">
+        
+        <div class="boundary-box box-platform">
+          <div>
+            <span class="badge-pill badge-rose">Strictly Read-Only</span>
+            <h3 style="color: #fff; margin-top: 4px;">Platform Codebase</h3>
+            <span class="code-pill" style="color: var(--accent-amber);">F:\ai-testable-platform</span>
+          </div>
+          <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem;">
+            <li style="color: #fca5a5;"><strong>[X] 0 Lines of Code Added</strong></li>
+            <li style="color: #fca5a5;"><strong>[X] 0 Dependencies or Packages Installed</strong></li>
+            <li style="color: #fca5a5;"><strong>[X] 0 Commits or Branches Created</strong></li>
+            <li style="color: #fca5a5;"><strong>[!] Mounted 100% Read-Only</strong></li>
+            <li style="color: #cbd5e1;">Contains Ground Truth Registries</li>
+            <li style="color: #cbd5e1;">Contains Live Next.js App Routes</li>
+          </ul>
+        </div>
+
+        <div class="boundary-box box-sensors">
+          <div>
+            <span class="badge-pill badge-emerald">One-Way Data Flow</span>
+            <h3 style="color: #fff; margin-top: 4px;">Read-Only Sensors</h3>
+            <span class="code-pill" style="color: #6ee7b7;">AST & Route Parsers</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="background: rgba(0,0,0,0.25); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--accent-emerald); font-size: 0.78rem;">● Sensor 1: Python AST Tool Reader</strong>
+              <p style="font-size: 0.72rem; color: #d1fae5; margin-top: 2px;">Reads <code>technique_tool.py</code> directly. Auto-discovers newly added tools.</p>
+            </div>
+            <div style="background: rgba(0,0,0,0.25); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--accent-blue); font-size: 0.78rem;">● Sensor 2: Next.js Route Scanner</strong>
+              <p style="font-size: 0.72rem; color: #d1fae5; margin-top: 2px;">Scans <code>frontend/web-console/src/app/</code> to map live <code>page.tsx</code> routes.</p>
+            </div>
+            <div style="background: rgba(0,0,0,0.25); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--accent-amber); font-size: 0.78rem;">● Sensor 3: Git-Diff Impact Filter</strong>
+              <p style="font-size: 0.72rem; color: #d1fae5; margin-top: 2px;">Executes <code>git diff HEAD~1</code> to selectively test only affected tools.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="boundary-box box-automation">
+          <div>
+            <span class="badge-pill badge-indigo">Isolated Framework</span>
+            <h3 style="color: #fff; margin-top: 4px;">Automation Bot Engine</h3>
+            <span class="code-pill" style="color: var(--accent-blue);">F:\Tool Validation Automation</span>
+          </div>
+          <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem; color: #cbd5e1;">
+            <li>• Self-Healing Action Resolver</li>
+            <li>• Playwright Browser Driver</li>
+            <li>• Whitebox & RCA Classifier</li>
+            <li>• Multi-Sheet Excel Engine</li>
+            <li>• Executive 2-Page PDF Builder</li>
+            <li>• Jira REST API Cloud Poster</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Section 4: Smart Decision Tree -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-amber);">Section 4 · Smart Git-Diff Trigger Decision Tree</span>
+      </div>
+      <div class="decision-container">
+        <div class="dt-root">
+          <span class="badge-pill badge-indigo">Event Fired</span>
+          <h3 style="color: #fff;">GitHub Push / PR / S3</h3>
+          <div style="color: var(--accent-emerald); font-family: monospace; font-weight: 700;">git diff HEAD~1</div>
+          <div style="color: var(--text-muted); font-size: 0.72rem;">Inspects list of changed files</div>
+        </div>
+
+        <div class="dt-branches">
+          <div class="dt-branch">
+            <span class="dt-branch-badge badge-pill" style="background: #334155; color: #fff;">NO-OP</span>
+            <div class="dt-branch-info">
+              <div class="dt-branch-title">Docs / Readme Only (*.md, docs/*, .gitignore)</div>
+              <div class="dt-branch-action">Immediate Power-Down (3s) ➜ Zero tests run · $0 cost</div>
+            </div>
+          </div>
+
+          <div class="dt-branch">
+            <span class="dt-branch-badge badge-pill badge-blue">WHITEBOX</span>
+            <div class="dt-branch-info">
+              <div class="dt-branch-title">Static Tools Modified (shared/scoring/*, tools/*)</div>
+              <div class="dt-branch-action">Re-Sync Tool AST ➜ Execute Whitebox & Taxonomy Parity Validation</div>
+            </div>
+          </div>
+
+          <div class="dt-branch">
+            <span class="dt-branch-badge badge-pill badge-emerald">E2E UI</span>
+            <div class="dt-branch-info">
+              <div class="dt-branch-title">Frontend Modified (frontend/web-console/*)</div>
+              <div class="dt-branch-action">Scan Next.js Routes ➜ Execute Self-Healing Playwright E2E Tests</div>
+            </div>
+          </div>
+
+          <div class="dt-branch">
+            <span class="dt-branch-badge badge-pill badge-amber">FULL RUN</span>
+            <div class="dt-branch-info">
+              <div class="dt-branch-title">Backend Orchestrator (backend/wb-orchestrator/*)</div>
+              <div class="dt-branch-action">Verify Celery Scheduling ➜ Full End-to-End Regression & Container Validation</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 5: Self-Healing Dynamic UI -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-purple);">Section 5 · Self-Healing Dynamic UI Engine</span>
+      </div>
+      <div class="grid-4">
+        <div class="card border-indigo">
+          <div class="card-head">
+            <span class="badge-pill badge-indigo">Rename</span>
+            <h3>Button Renamed</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-indigo);">e.g. 'Login' ➜ 'Continue'</div>
+          <div style="font-size: 0.74rem; color: #fff; font-weight: 700; margin-bottom: 4px;">Semantic Intent Engine</div>
+          <p style="font-size: 0.74rem; color: var(--text-muted);">
+            Resolves by universal action intent (AUTH, TRIGGER, EXPORT). Matches synonyms automatically with zero brittle string dependencies.
+          </p>
+        </div>
+
+        <div class="card border-emerald">
+          <div class="card-head">
+            <span class="badge-pill badge-emerald">Position</span>
+            <h3>Location Shift</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-emerald);">Moved to Header or Sidebar</div>
+          <div style="font-size: 0.74rem; color: #fff; font-weight: 700; margin-bottom: 4px;">Accessibility DOM Tree</div>
+          <p style="font-size: 0.74rem; color: var(--text-muted);">
+            Zero pixel dependency (no X/Y coordinates). Playwright auto-scrolls the viewport to bring elements into view before clicking.
+          </p>
+        </div>
+
+        <div class="card border-amber">
+          <div class="card-head">
+            <span class="badge-pill badge-amber">Dropdown</span>
+            <h3>3-Dots Menu (...)</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-amber);">Row Action Dropdown (...)</div>
+          <div style="font-size: 0.74rem; color: #fff; font-weight: 700; margin-bottom: 4px;">Auto-Kebab Unfurler</div>
+          <p style="font-size: 0.74rem; color: var(--text-muted);">
+            Detects hidden button, clicks parent row action trigger (<code>[aria-label='Actions']</code>), opens menu, and clicks target action.
+          </p>
+        </div>
+
+        <div class="card border-rose">
+          <div class="card-head">
+            <span class="badge-pill badge-rose">Icon Only</span>
+            <h3>Icon-Only Submit</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-rose);">Arrow ➜ with Zero Text</div>
+          <div style="font-size: 0.74rem; color: #fff; font-weight: 700; margin-bottom: 4px;">Form Hierarchy Anchor</div>
+          <p style="font-size: 0.74rem; color: var(--text-muted);">
+            Detects active form container and selects <code>form button[type='submit']</code> by functional role rather than missing text.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 6: How the Team Uses It -->
+    <div>
+      <div class="section-header">
+        <span class="section-title" style="background-color: var(--accent-blue);">Section 6 · How the Entire Team Collaborates</span>
+      </div>
+      <div class="grid-3">
+        <div class="card border-indigo">
+          <div class="card-head">
+            <span class="badge-pill badge-indigo">Dev Team</span>
+            <h3>Developers</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-indigo);">Benefit: 0 Script Installation</div>
+          <ul>
+            <li>• Push code or open Pull Requests normally.</li>
+            <li>• Bot validates static tools automatically in CI/CD.</li>
+            <li>• Receives instant PR status checks.</li>
+            <li>• Clear root-cause attribution on tool failure.</li>
+          </ul>
+        </div>
+
+        <div class="card border-emerald">
+          <div class="card-head">
+            <span class="badge-pill badge-emerald">QA Team</span>
+            <h3>QA Engineers</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-emerald);">Benefit: 0 Code Scripting</div>
+          <ul>
+            <li>• Add E2E tests in Excel (<code>testcases/admin.xlsx</code>).</li>
+            <li>• Zero python/playwright coding required.</li>
+            <li>• Inspect container defect classification.</li>
+            <li>• Verify taxonomy parity gates effortlessly.</li>
+          </ul>
+        </div>
+
+        <div class="card border-amber">
+          <div class="card-head">
+            <span class="badge-pill badge-amber">Leadership</span>
+            <h3>Leadership / Managers</h3>
+          </div>
+          <div class="subtitle-tag" style="color: var(--accent-amber);">Benefit: 1-Click Executive Delivery</div>
+          <ul>
+            <li>• Jira tickets updated with 2-page review PDFs.</li>
+            <li>• Excel matrices attached with native pills.</li>
+            <li>• 30-second executive BLUF summary.</li>
+            <li>• Saravanan / Rathiba / Benny QA standard.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer Signoff -->
+    <div class="footer-signoff">
+      <div class="badge-pill badge-emerald">Executive QA Architecture Sign-Off</div>
+      <h3>SARAVANAN SELVARAJ · RATHIBA · BENNY QA STANDARD COMPLIANCE</h3>
+      <div class="guarantees-grid">
+        <div class="guarantee-item">
+          <strong>✓ 100% Non-Destructive Safety</strong>
+          Platform repository is strictly Read-Only. 0 code changes, 0 dependencies, 0 commits.
+        </div>
+        <div class="guarantee-item">
+          <strong>✓ Zero Maintenance Overhead</strong>
+          Self-healing semantic actions & AST introspection adapt to UI & tool changes automatically.
+        </div>
+        <div class="guarantee-item">
+          <strong>✓ True Serverless Architecture</strong>
+          GitHub Actions runs on-demand for ~30 seconds with $0 idle cost and 0% CPU consumption.
+        </div>
+        <div class="guarantee-item">
+          <strong>✓ Automated Jira Cloud Delivery</strong>
+          Native pills <code>[^filename.ext]</code> with clickable reports, executive PDFs, and Excel trackers.
+        </div>
+      </div>
+      <div style="margin-top: 18px; font-size: 0.72rem; color: #64748b;">
+        Confidential · Testable Quality Engineering · Tool Validation Automation Repository
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

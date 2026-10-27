@@ -1,0 +1,77 @@
+name: Whitebox Tool Validation & Self-Healing Bot
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      platform_path:
+        description: 'Path to platform repository (if relative or mounted)'
+        required: false
+        default: '../ai-testable-platform'
+      issue_key:
+        description: 'Jira issue key to report against'
+        required: false
+        default: 'TP-6246'
+      dry_run:
+        description: 'Perform dry-run without writing to Jira'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  validate-and-report:
+    name: Introspect & Validate Platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Automation Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Automation Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pydantic openpyxl reportlab pytest requests
+
+      - name: Run Build Impact Analyzer & Introspection
+        run: |
+          python cli.py inspect --platform-path "${{ github.event.inputs.platform_path || '../ai-testable-platform' }}"
+
+      - name: Execute Autonomous Validation Pipeline
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python cli.py auto-validate \
+            --platform-path "${{ github.event.inputs.platform_path || '../ai-testable-platform' }}" \
+            --issue-key "${{ github.event.inputs.issue_key || 'TP-6246' }}" \
+            $DRY_RUN_FLAG
+
+      - name: Archive QA Deliverables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports
+          path: |
+            *.xlsx
+            *.pdf
+            *.html
+            *.png
+          if-no-files-found: ignore
