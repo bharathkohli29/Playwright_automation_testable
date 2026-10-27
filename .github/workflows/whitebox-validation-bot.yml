@@ -1,24 +1,25 @@
 name: Whitebox Tool Validation & Self-Healing Bot
 
 on:
-  push:
-    branches:
-      - main
-      - dev
-      - develop
-      - 'release/**'
-      - 'feat/**'
-  pull_request:
-    branches:
-      - main
-      - dev
-      - develop
+  # 1. Triggered across repositories when a commit/PR occurs in ai-testable-platform
+  repository_dispatch:
+    types: [platform-commit, platform-pr-trigger, testable-run-completed]
+
+  # 2. Triggered manually from UI on any target platform branch
   workflow_dispatch:
     inputs:
-      platform_path:
-        description: 'Path to platform repository (if relative or mounted)'
+      platform_repo:
+        description: 'Target Platform Repository (e.g. testable-platform/ai-testable-platform)'
+        required: true
+        default: 'testable-platform/ai-testable-platform'
+      platform_branch:
+        description: 'Branch of target platform repo to inspect & validate'
+        required: true
+        default: 'develop'
+      run_path:
+        description: 'Path to run artifacts directory (e.g. s3 or local folder)'
         required: false
-        default: '../ai-testable-platform'
+        default: ''
       issue_key:
         description: 'Jira issue key to report against'
         required: false
@@ -29,15 +30,34 @@ on:
         required: false
         default: false
 
+  # 3. Direct triggers on the automation harness
+  push:
+    branches:
+      - main
+      - dev
+      - develop
+      - 'feat/**'
+      - 'release/**'
+
 jobs:
   validate-and-report:
-    name: Introspect & Validate Platform
+    name: Introspect & Validate External Platform
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout Automation Repository
+      - name: Checkout Automation Framework
         uses: actions/checkout@v4
+        with:
+          path: automation-harness
+
+      - name: Checkout Target Platform Repo (Read-Only)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.platform_repo || github.event.client_payload.repository || 'testable-platform/ai-testable-platform' }}
+          ref: ${{ github.event.inputs.platform_branch || github.event.client_payload.branch || 'develop' }}
+          token: ${{ secrets.PLATFORM_REPO_READ_TOKEN || github.token }}
+          path: target-platform
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,15 +66,18 @@ jobs:
           cache: 'pip'
 
       - name: Install Automation Dependencies
+        working-directory: automation-harness
         run: |
           python -m pip install --upgrade pip
           pip install pydantic openpyxl reportlab pytest requests
 
-      - name: Run Build Impact Analyzer & Introspection
+      - name: Inspect Target Platform Branch & AST Tools
+        working-directory: automation-harness
         run: |
-          python cli.py inspect --platform-path "${{ github.event.inputs.platform_path || '../ai-testable-platform' }}"
+          python cli.py inspect --platform-path "../target-platform"
 
       - name: Execute Autonomous Validation Pipeline
+        working-directory: automation-harness
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
@@ -64,9 +87,14 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
+          RUN_PATH_FLAG=""
+          if [ -n "${{ github.event.inputs.run_path }}" ]; then
+            RUN_PATH_FLAG="--run-path ${{ github.event.inputs.run_path }}"
+          fi
           python cli.py auto-validate \
-            --platform-path "${{ github.event.inputs.platform_path || '../ai-testable-platform' }}" \
-            --issue-key "${{ github.event.inputs.issue_key || 'TP-6246' }}" \
+            --platform-path "../target-platform" \
+            --issue-key "${{ github.event.inputs.issue_key || github.event.client_payload.issue_key || 'TP-6246' }}" \
+            $RUN_PATH_FLAG \
             $DRY_RUN_FLAG
 
       - name: Archive QA Deliverables
