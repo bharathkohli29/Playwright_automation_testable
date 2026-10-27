@@ -7,6 +7,7 @@ from core.route_discoverer import RouteDiscoverer
 from core.build_analyzer import BuildAnalyzer
 from core.report_generator import ReportGenerator
 from core.jira_bot_poster import JiraBotPoster, JiraDeliverablePayload
+from core.config import DEFAULT_PLATFORM_PATH
 
 def cmd_inspect(args):
     platform_path = Path(args.platform_path).resolve()
@@ -81,14 +82,20 @@ def cmd_auto_validate(args):
         run_data = rep_gen.parse_run_directory(args.run_path)
         print(f"[OK] Run Data Parsed: {run_data.get('run_id')} ({run_data.get('total_tools')} rows, Pass Rate: {run_data.get('pass_rate')})")
     else:
+        # No run results supplied: report only what was actually measured (catalog + route discovery).
+        checks = {"tool catalog discovered": len(tools) > 0, "web console routes discovered": len(routes) > 0}
+        passed_checks = sum(checks.values())
+        failed_names = [n for n, ok in checks.items() if not ok]
+        for n in failed_names:
+            print(f"[FAIL] Check failed: {n}")
         run_data = {
             "run_id": f"build-{version}-{commit}",
             "branch": inspector.get_git_branch(),
             "commit": commit,
-            "pass_rate": "100%",
-            "total_tools": len(tools),
-            "passed_tools": len(tools),
-            "failed_tools": 0,
+            "pass_rate": f"{passed_checks / len(checks) * 100:.0f}%",
+            "total_tools": len(checks),
+            "passed_tools": passed_checks,
+            "failed_tools": len(failed_names),
             "rows": []
         }
 
@@ -108,13 +115,20 @@ def cmd_auto_validate(args):
         failed_tools=run_data.get("failed_tools", 0),
         excel_name=excel_path.name,
         pdf_name=pdf_path.name,
-        bluf_summary=f"Automated build {version} verified against ground-truth taxonomy. All {run_data.get('total_tools')} checks and live routes evaluated."
+        bluf_summary=(
+            f"Automated build {version} verified against ground-truth taxonomy. All {run_data.get('total_tools')} checks and live routes evaluated."
+            if run_data.get("failed_tools", 0) == 0 else
+            f"Automated build {version}: {run_data.get('failed_tools')} of {run_data.get('total_tools')} checks failed."
+        )
     )
 
     poster = JiraBotPoster(dry_run=args.dry_run)
     res = poster.post_deliverables(payload, file_paths=[excel_path, pdf_path])
     print(f"[OK] Jira Delivery Status: {res.get('status')} for issue {args.issue_key}")
     print("==================================================")
+    if run_data.get("failed_tools", 0):
+        print("[FAIL] Auto-validation finished with failed checks.")
+        sys.exit(1)
     print("[OK] Auto-validation pipeline executed successfully with 0 platform code changes.")
 
 
@@ -124,12 +138,12 @@ def main():
 
     # inspect
     p_inspect = subparsers.add_parser("inspect", help="Inspect platform codebase in read-only mode")
-    p_inspect.add_argument("--platform-path", default="F:/ai-testable-platform", help="Path to platform repository")
+    p_inspect.add_argument("--platform-path", default=DEFAULT_PLATFORM_PATH, help="Path to platform repository")
     p_inspect.set_defaults(func=cmd_inspect)
 
     # auto-validate
     p_validate = subparsers.add_parser("auto-validate", help="Run automated validation pipeline")
-    p_validate.add_argument("--platform-path", default="F:/ai-testable-platform", help="Path to platform repository")
+    p_validate.add_argument("--platform-path", default=DEFAULT_PLATFORM_PATH, help="Path to platform repository")
     p_validate.add_argument("--run-path", default=None, help="Path to historical or current run artifacts folder")
     p_validate.add_argument("--issue-key", default="TP-6246", help="Jira issue key to update")
     p_validate.add_argument("--dry-run", action="store_true", help="Perform dry-run without network calls")

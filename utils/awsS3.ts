@@ -41,8 +41,8 @@ export class S3Reader {
     let token: string | undefined;
     do {
       const r = await this.send<any>(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, Delimiter: '/', ContinuationToken: token }));
-      (r.CommonPrefixes || []).forEach((c) => c.Prefix && folders.push(c.Prefix));
-      (r.Contents || []).forEach((c) => c.Key && c.Key !== prefix && files.push(c.Key));
+      (r.CommonPrefixes || []).forEach((c: { Prefix?: string }) => c.Prefix && folders.push(c.Prefix));
+      (r.Contents || []).forEach((c: { Key?: string }) => c.Key && c.Key !== prefix && files.push(c.Key));
       token = r.IsTruncated ? r.NextContinuationToken : undefined;
     } while (token);
     return { folders, files };

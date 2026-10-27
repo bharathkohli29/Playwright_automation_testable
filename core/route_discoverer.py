@@ -1,11 +1,12 @@
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional
+from core.config import DEFAULT_PLATFORM_PATH
 
 class RouteDiscoverer:
     """Scans Next.js App Router directory trees to discover live routes and parameter placeholders."""
 
-    def __init__(self, app_root: Path | str = "F:/ai-testable-platform/frontend/web-console/src/app"):
+    def __init__(self, app_root: Path | str = f"{DEFAULT_PLATFORM_PATH}/frontend/web-console/src/app"):
         self.app_root = Path(app_root).resolve()
         self._routes: Optional[List[str]] = None
 

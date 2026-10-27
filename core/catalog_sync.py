@@ -1,12 +1,16 @@
 import ast
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
+from core.config import DEFAULT_PLATFORM_PATH
+
+log = logging.getLogger(__name__)
 
 class CatalogSynchronizer:
     """Introspects the platform codebase to dynamically discover and synchronize the tool catalog."""
 
-    def __init__(self, platform_path: Path | str = "F:/ai-testable-platform"):
+    def __init__(self, platform_path: Path | str = DEFAULT_PLATFORM_PATH):
         self.root = Path(platform_path).resolve()
         self.technique_file = self.root / "shared" / "scoring" / "technique_tool.py"
         self.whitebox_dir = self.root / "tools" / "whitebox"
@@ -14,12 +18,14 @@ class CatalogSynchronizer:
     def _parse_technique_tool_ast(self) -> Dict[str, List[str]]:
         """Parses technique_tool.py via Python AST without executing any platform code."""
         if not self.technique_file.exists():
+            log.warning("technique_tool.py not found at %s", self.technique_file)
             return {}
 
         try:
             content = self.technique_file.read_text(encoding="utf-8")
             tree = ast.parse(content)
-        except Exception:
+        except Exception as exc:
+            log.warning("could not parse %s: %s", self.technique_file, exc)
             return {}
 
         category_tools: Dict[str, List[str]] = {}

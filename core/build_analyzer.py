@@ -1,7 +1,11 @@
+import logging
 import subprocess
 from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from core.config import DEFAULT_PLATFORM_PATH
+
+log = logging.getLogger(__name__)
 
 class BuildImpact(BaseModel):
     category: str
@@ -12,7 +16,7 @@ class BuildImpact(BaseModel):
 class BuildAnalyzer:
     """Analyzes Git diff changes in the platform repository to determine testing impact."""
 
-    def __init__(self, platform_path: Path | str = "F:/ai-testable-platform"):
+    def __init__(self, platform_path: Path | str = DEFAULT_PLATFORM_PATH):
         self.root = Path(platform_path).resolve()
 
     def get_changed_files(self, base_ref: str = "HEAD~1") -> List[str]:
@@ -23,7 +27,8 @@ class BuildAnalyzer:
             cmd = ["git", "-C", str(self.root), "diff", base_ref, "--name-only"]
             res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return [line.strip().replace("\\", "/") for line in res.stdout.splitlines() if line.strip()]
-        except Exception:
+        except Exception as exc:
+            log.warning("git diff %s failed in %s: %s", base_ref, self.root, exc)
             return []
 
     def classify_changes(self, changed_files: List[str]) -> BuildImpact:

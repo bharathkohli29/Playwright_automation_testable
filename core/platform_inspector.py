@@ -1,11 +1,15 @@
+import logging
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
+from core.config import DEFAULT_PLATFORM_PATH
+
+log = logging.getLogger(__name__)
 
 class PlatformInspector:
     """Read-only inspector for the Testable platform codebase."""
     
-    def __init__(self, platform_path: Path | str = "F:/ai-testable-platform"):
+    def __init__(self, platform_path: Path | str = DEFAULT_PLATFORM_PATH):
         self.root = Path(platform_path).resolve()
 
     def is_valid_platform_root(self) -> bool:
@@ -19,8 +23,8 @@ class PlatformInspector:
         if version_file.exists():
             try:
                 return version_file.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not read %s: %s", version_file, exc)
         return "unknown"
 
     def get_git_commit(self, short: bool = True) -> str:
@@ -31,7 +35,8 @@ class PlatformInspector:
             cmd = [c for c in cmd if c]
             res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return res.stdout.strip()
-        except Exception:
+        except Exception as exc:
+            log.warning("git rev-parse failed in %s: %s", self.root, exc)
             return "unknown-commit"
 
     def get_git_branch(self) -> str:
@@ -41,7 +46,8 @@ class PlatformInspector:
             cmd = ["git", "-C", str(self.root), "rev-parse", "--abbrev-ref", "HEAD"]
             res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return res.stdout.strip()
-        except Exception:
+        except Exception as exc:
+            log.warning("git branch lookup failed in %s: %s", self.root, exc)
             return "unknown-branch"
 
     def get_structure(self) -> Dict[str, bool]:
