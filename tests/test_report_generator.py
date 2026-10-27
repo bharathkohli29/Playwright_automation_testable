@@ -45,3 +45,41 @@ def test_report_generator_on_real_v21_data(tmp_path):
 
     assert excel_file.exists()
     assert pdf_file.exists()
+
+
+def _write_s3(dirpath, run_id, results):
+    import json
+    dirpath.mkdir(parents=True, exist_ok=True)
+    (dirpath / "s3-check.json").write_text(json.dumps({
+        "repo": "r", "branch": "b", "run_id": run_id, "commit_sha": "abc",
+        "checks": [{"tool": f"t{i}", "result": r, "note": "n"} for i, r in enumerate(results)],
+    }), encoding="utf-8")
+
+
+def test_parse_s3_check_counts_each_verdict(tmp_path):
+    _write_s3(tmp_path / "branchA", "run-1", ["PASS", "PASS", "EMPTY", "FAIL", "NA"])
+    parsed = ReportGenerator(output_dir=tmp_path).parse_run_directory(tmp_path)
+    assert parsed["run_id"] == "run-1"
+    assert (parsed["passed_tools"], parsed["empty_tools"], parsed["failed_tools"], parsed["not_applicable"]) == (2, 1, 1, 1)
+    assert parsed["total_tools"] == 5
+    assert parsed["pass_rate"] == "50.0%"  # 2 of the 4 evaluable (N/A excluded)
+
+
+def test_parse_s3_check_unknown_verdict_not_counted(tmp_path):
+    _write_s3(tmp_path, "run-2", ["PASS", "WEIRD"])
+    parsed = ReportGenerator(output_dir=tmp_path).parse_run_directory(tmp_path)
+    assert parsed["total_tools"] == 1 and parsed["pass_rate"] == "100.0%"
+
+
+def test_parse_empty_run_dir_is_not_a_pass(tmp_path):
+    parsed = ReportGenerator(output_dir=tmp_path).parse_run_directory(tmp_path)
+    assert parsed["total_tools"] == 0
+    assert parsed["pass_rate"] == "N/A"
+
+
+def test_excel_without_rows_has_no_fake_pass(tmp_path):
+    import openpyxl
+    gen = ReportGenerator(output_dir=tmp_path)
+    f = gen.generate_excel_tracker({"rows": []}, filename="x.xlsx")
+    ws = openpyxl.load_workbook(f)["Tool Execution Matrix"]
+    assert [c.value for c in ws[2]][-1] == "N/A"

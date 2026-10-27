@@ -35,3 +35,14 @@ def test_cli_auto_validate_dry_run():
     res = subprocess.run(cmd, capture_output=True, text=True, check=True)
     assert "[OK]" in res.stdout or "SUCCESS" in res.stdout or "Validated" in res.stdout
     assert "TP-6246" in res.stdout
+
+
+def test_cli_missing_run_path_is_an_error(tmp_path):
+    live_path = Path("F:/ai-testable-platform")
+    if not live_path.exists():
+        pytest.skip("Live platform path not found")
+    res = subprocess.run(
+        [sys.executable, "cli.py", "auto-validate", "--platform-path", str(live_path),
+         "--run-path", str(tmp_path / "nope"), "--dry-run"],
+        capture_output=True, text=True)
+    assert res.returncode == 2 and "--run-path not found" in res.stdout

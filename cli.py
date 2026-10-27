@@ -78,9 +78,15 @@ def cmd_auto_validate(args):
 
     # Step 3: Run Data Ingestion & Real Deliverables Generation
     rep_gen = ReportGenerator(output_dir=".")
-    if args.run_path and Path(args.run_path).exists():
+    if args.run_path and not Path(args.run_path).exists():
+        print(f"[ERROR] --run-path not found: {args.run_path}")
+        sys.exit(2)
+    if args.run_path:
         run_data = rep_gen.parse_run_directory(args.run_path)
         print(f"[OK] Run Data Parsed: {run_data.get('run_id')} ({run_data.get('total_tools')} rows, Pass Rate: {run_data.get('pass_rate')})")
+        if not run_data.get("total_tools"):
+            print(f"[ERROR] No tool results (gate_*.json / s3-check.json) found in {args.run_path}")
+            sys.exit(2)
     else:
         # No run results supplied: report only what was actually measured (catalog + route discovery).
         checks = {"tool catalog discovered": len(tools) > 0, "web console routes discovered": len(routes) > 0}
@@ -106,6 +112,20 @@ def cmd_auto_validate(args):
     print(f"     • PDF:   {pdf_path} ({pdf_path.stat().st_size} bytes)")
 
     # Step 4: Jira Delivery
+    if args.run_path:
+        bluf_summary = (
+            f"Build {version} run results: {run_data.get('passed_tools', 0)} passed, "
+            f"{run_data.get('empty_tools', 0)} empty, {run_data.get('failed_tools', 0)} failed, "
+            f"{run_data.get('not_applicable', 0)} N/A out of {run_data.get('total_tools')} tool rows "
+            f"(pass rate {run_data.get('pass_rate')}); {len(tools)} tools and {len(routes)} routes discovered in the platform codebase."
+        )
+    elif run_data.get("failed_tools", 0):
+        bluf_summary = f"Build {version} catalog check FAILED: {run_data.get('failed_tools')} of {run_data.get('total_tools')} checks failed. No tool run results were supplied."
+    else:
+        bluf_summary = (
+            f"Build {version} catalog check only: {len(tools)} tools and {len(routes)} routes discovered in the platform codebase. "
+            f"No tool run results were supplied, so tool execution is not verified."
+        )
     payload = JiraDeliverablePayload(
         issue_key=args.issue_key,
         run_id=run_data.get("run_id"),
@@ -115,18 +135,14 @@ def cmd_auto_validate(args):
         failed_tools=run_data.get("failed_tools", 0),
         excel_name=excel_path.name,
         pdf_name=pdf_path.name,
-        bluf_summary=(
-            f"Automated build {version} verified against ground-truth taxonomy. All {run_data.get('total_tools')} checks and live routes evaluated."
-            if run_data.get("failed_tools", 0) == 0 else
-            f"Automated build {version}: {run_data.get('failed_tools')} of {run_data.get('total_tools')} checks failed."
-        )
+        bluf_summary=bluf_summary
     )
 
     poster = JiraBotPoster(dry_run=args.dry_run)
     res = poster.post_deliverables(payload, file_paths=[excel_path, pdf_path])
     print(f"[OK] Jira Delivery Status: {res.get('status')} for issue {args.issue_key}")
     print("==================================================")
-    if run_data.get("failed_tools", 0):
+    if run_data.get("failed_tools", 0) and not args.run_path:
         print("[FAIL] Auto-validation finished with failed checks.")
         sys.exit(1)
     print("[OK] Auto-validation pipeline executed successfully with 0 platform code changes.")

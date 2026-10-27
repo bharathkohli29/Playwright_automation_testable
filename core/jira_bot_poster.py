@@ -1,8 +1,11 @@
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 import requests
+
+log = logging.getLogger(__name__)
 
 class JiraDeliverablePayload(BaseModel):
     issue_key: str
@@ -81,6 +84,7 @@ class JiraBotPoster:
 
         p = Path(file_path)
         if not p.exists() or not p.is_file():
+            log.warning("attachment not found: %s", p)
             return False
 
         url = f"{self.jira_url}/rest/api/3/issue/{issue_key}/attachments"
@@ -88,8 +92,11 @@ class JiraBotPoster:
             with open(p, "rb") as f:
                 files = {"file": (p.name, f, "application/octet-stream")}
                 res = requests.post(url, headers=self._get_headers(), auth=self._get_auth(), files=files, timeout=30)
+                if res.status_code not in (200, 201):
+                    log.warning("attachment upload %s failed: HTTP %s %s", p.name, res.status_code, res.text[:200])
                 return res.status_code in (200, 201)
-        except Exception:
+        except Exception as exc:
+            log.warning("attachment upload %s failed: %s", p.name, exc)
             return False
 
     def add_comment(self, issue_key: str, comment_text: str) -> bool:
@@ -97,12 +104,15 @@ class JiraBotPoster:
         if self.dry_run:
             return True
 
-        url = f"{self.jira_url}/rest/api/3/issue/{issue_key}/comment"
+        url = f"{self.jira_url}/rest/api/2/issue/{issue_key}/comment"  # v2: body is wiki-markup text (v3 requires ADF)
         try:
             body = {"body": comment_text}
             res = requests.post(url, headers={"Content-Type": "application/json", "Accept": "application/json"}, auth=self._get_auth(), json=body, timeout=30)
+            if res.status_code not in (200, 201):
+                log.warning("comment on %s failed: HTTP %s %s", issue_key, res.status_code, res.text[:200])
             return res.status_code in (200, 201)
-        except Exception:
+        except Exception as exc:
+            log.warning("comment on %s failed: %s", issue_key, exc)
             return False
 
     def post_deliverables(
@@ -131,7 +141,7 @@ class JiraBotPoster:
         comment_posted = self.add_comment(payload.issue_key, comment)
 
         return {
-            "status": "published" if comment_posted else "partial_failure",
+            "status": "published" if comment_posted and len(attached) == len(file_paths) else "partial_failure",
             "issue_key": payload.issue_key,
             "attached_files": attached,
             "comment_posted": comment_posted

@@ -9,13 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       platform_repo:
-        description: 'Target Platform Repository (e.g. testable-platform/ai-testable-platform)'
-        required: true
-        default: 'testable-platform/ai-testable-platform'
+        description: 'Target Platform Repository (owner/name). Empty = repository variable PLATFORM_REPO'
+        required: false
+        default: ''
       platform_branch:
-        description: 'Branch of target platform repo to inspect & validate'
-        required: true
-        default: 'develop'
+        description: 'Branch of target platform repo to inspect & validate. Empty = repository variable PLATFORM_BRANCH'
+        required: false
+        default: ''
       run_path:
         description: 'Path to run artifacts directory (e.g. s3 or local folder)'
         required: false
@@ -46,45 +46,74 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Resolve target platform (repo variable PLATFORM_REPO / PLATFORM_BRANCH, inputs or dispatch payload)
+        id: cfg
+        run: |
+          REPO="${{ github.event.inputs.platform_repo || github.event.client_payload.repository || vars.PLATFORM_REPO }}"
+          BRANCH="${{ github.event.inputs.platform_branch || github.event.client_payload.branch || vars.PLATFORM_BRANCH }}"
+          if [ -z "$REPO" ] || [ -z "$BRANCH" ]; then
+            echo "::warning::No target platform configured (set repo variables PLATFORM_REPO and PLATFORM_BRANCH). Skipping validation."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout Automation Framework
+        if: steps.cfg.outputs.configured == 'true'
         uses: actions/checkout@v4
         with:
           path: automation-harness
 
       - name: Checkout Target Platform Repo (Read-Only)
+        if: steps.cfg.outputs.configured == 'true'
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.inputs.platform_repo || github.event.client_payload.repository || 'testable-platform/ai-testable-platform' }}
-          ref: ${{ github.event.inputs.platform_branch || github.event.client_payload.branch || 'develop' }}
+          repository: ${{ steps.cfg.outputs.repo }}
+          ref: ${{ steps.cfg.outputs.branch }}
           token: ${{ secrets.PLATFORM_REPO_READ_TOKEN || github.token }}
           path: target-platform
 
       - name: Set up Python
+        if: steps.cfg.outputs.configured == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
 
       - name: Install Automation Dependencies
+        if: steps.cfg.outputs.configured == 'true'
         working-directory: automation-harness
         run: |
           python -m pip install --upgrade pip
           pip install pydantic openpyxl reportlab pytest requests
 
+      - name: Run automation unit tests
+        if: steps.cfg.outputs.configured == 'true'
+        working-directory: automation-harness
+        env:
+          PLATFORM_PATH: ${{ github.workspace }}/target-platform
+        run: python -m pytest -q
+
       - name: Inspect Target Platform Branch & AST Tools
+        if: steps.cfg.outputs.configured == 'true'
         working-directory: automation-harness
         run: |
           python cli.py inspect --platform-path "../target-platform"
 
       - name: Execute Autonomous Validation Pipeline
+        if: steps.cfg.outputs.configured == 'true'
         working-directory: automation-harness
         env:
+          PLATFORM_PATH: ${{ github.workspace }}/target-platform
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          # plain pushes to the harness never write to Jira; only dispatch runs with dry_run=false do
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ] || [ "${{ github.event_name }}" = "push" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
           RUN_PATH_FLAG=""
@@ -98,7 +127,7 @@ jobs:
             $DRY_RUN_FLAG
 
       - name: Archive QA Deliverables
-        if: always()
+        if: always() && steps.cfg.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: validation-reports

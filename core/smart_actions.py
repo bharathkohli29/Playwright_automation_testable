@@ -2,6 +2,9 @@ import time
 from enum import Enum
 from typing import List, Optional, Dict, Any
 
+# NOTE: reference implementation, unit-tested but NOT yet called by the Playwright (TypeScript) suite in
+# pages/MergeFlowPage.ts. The "self-healing UI" behaviour only applies once that suite uses an equivalent.
+
 class ActionIntent(str, Enum):
     AUTH = "AUTH"
     TRIGGER = "TRIGGER"
