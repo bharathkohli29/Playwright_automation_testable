@@ -74,6 +74,7 @@ jobs:
           ref: ${{ steps.cfg.outputs.branch }}
           token: ${{ secrets.PLATFORM_REPO_READ_TOKEN || github.token }}
           persist-credentials: false  # read-only: the target checkout keeps no push credentials
+          fetch-depth: 2  # build analyzer diffs HEAD~1; a depth-1 clone would look like "no changes"
           path: target-platform
 
       - name: Set up Python
