@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       platform_repo:
-        description: 'Target Platform Repository (owner/name). Empty = repository variable PLATFORM_REPO'
+        description: 'Target Platform Repository (owner/name). Empty = variable PLATFORM_REPO, else testable-platform/ai-testable-platform'
         required: false
         default: ''
       platform_branch:
-        description: 'Branch of target platform repo to inspect & validate. Empty = repository variable PLATFORM_BRANCH'
+        description: 'Branch of target platform repo to inspect & validate. Empty = variable PLATFORM_BRANCH, else qa'
         required: false
         default: ''
       run_path:
@@ -49,8 +49,8 @@ jobs:
       - name: Resolve target platform (repo variable PLATFORM_REPO / PLATFORM_BRANCH, inputs or dispatch payload)
         id: cfg
         run: |
-          REPO="${{ github.event.inputs.platform_repo || github.event.client_payload.repository || vars.PLATFORM_REPO }}"
-          BRANCH="${{ github.event.inputs.platform_branch || github.event.client_payload.branch || vars.PLATFORM_BRANCH }}"
+          REPO="${{ github.event.inputs.platform_repo || github.event.client_payload.repository || vars.PLATFORM_REPO || 'testable-platform/ai-testable-platform' }}"
+          BRANCH="${{ github.event.inputs.platform_branch || github.event.client_payload.branch || vars.PLATFORM_BRANCH || 'qa' }}"
           if [ -z "$REPO" ] || [ -z "$BRANCH" ]; then
             echo "::warning::No target platform configured (set repo variables PLATFORM_REPO and PLATFORM_BRANCH). Skipping validation."
             echo "configured=false" >> "$GITHUB_OUTPUT"
@@ -73,6 +73,7 @@ jobs:
           repository: ${{ steps.cfg.outputs.repo }}
           ref: ${{ steps.cfg.outputs.branch }}
           token: ${{ secrets.PLATFORM_REPO_READ_TOKEN || github.token }}
+          persist-credentials: false  # read-only: the target checkout keeps no push credentials
           path: target-platform
 
       - name: Set up Python
@@ -100,7 +101,7 @@ jobs:
         if: steps.cfg.outputs.configured == 'true'
         working-directory: automation-harness
         run: |
-          python cli.py inspect --platform-path "../target-platform"
+          python cli.py inspect --platform-path "../target-platform" --expect-branch "${{ steps.cfg.outputs.branch }}"
 
       - name: Execute Autonomous Validation Pipeline
         if: steps.cfg.outputs.configured == 'true'
@@ -122,6 +123,7 @@ jobs:
           fi
           python cli.py auto-validate \
             --platform-path "../target-platform" \
+            --expect-branch "${{ steps.cfg.outputs.branch }}" \
             --issue-key "${{ github.event.inputs.issue_key || github.event.client_payload.issue_key || 'TP-6246' }}" \
             $RUN_PATH_FLAG \
             $DRY_RUN_FLAG

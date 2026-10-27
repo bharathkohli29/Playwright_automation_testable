@@ -46,3 +46,12 @@ def test_cli_missing_run_path_is_an_error(tmp_path):
          "--run-path", str(tmp_path / "nope"), "--dry-run"],
         capture_output=True, text=True)
     assert res.returncode == 2 and "--run-path not found" in res.stdout
+
+
+def test_cli_expect_branch_mismatch_aborts():
+    live_path = Path("F:/ai-testable-platform")
+    if not live_path.exists():
+        pytest.skip("Live platform path not found")
+    res = subprocess.run([sys.executable, "cli.py", "inspect", "--platform-path", str(live_path),
+                          "--expect-branch", "no-such-branch"], capture_output=True, text=True)
+    assert res.returncode == 3 and "expected 'no-such-branch'" in res.stdout

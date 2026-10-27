@@ -9,6 +9,16 @@ from core.report_generator import ReportGenerator
 from core.jira_bot_poster import JiraBotPoster, JiraDeliverablePayload
 from core.config import DEFAULT_PLATFORM_PATH
 
+def _check_expected_branch(inspector, expected):
+    """Read-only guard: stop if the platform checkout is not on the branch we were told to validate."""
+    if not expected:
+        return
+    actual = inspector.get_git_branch()
+    if actual != expected:
+        print(f"[ERROR] Platform checkout is on '{actual}', expected '{expected}'. Nothing was changed.")
+        sys.exit(3)
+
+
 def cmd_inspect(args):
     platform_path = Path(args.platform_path).resolve()
     inspector = PlatformInspector(platform_path)
@@ -16,6 +26,7 @@ def cmd_inspect(args):
         print(f"[ERROR] Invalid platform root: {platform_path}")
         sys.exit(1)
 
+    _check_expected_branch(inspector, args.expect_branch)
     print("==================================================")
     print(" [INSPECT] PLATFORM CODEBASE READ-ONLY INTROSPECTION")
     print("==================================================")
@@ -49,6 +60,7 @@ def cmd_auto_validate(args):
         print(f"[ERROR] Invalid platform root: {platform_path}")
         sys.exit(1)
 
+    _check_expected_branch(inspector, args.expect_branch)
     print("==================================================")
     print(" [RUN] EVENT-DRIVEN CI/CD AUTOMATION BOT PIPELINE")
     print("==================================================")
@@ -155,6 +167,7 @@ def main():
     # inspect
     p_inspect = subparsers.add_parser("inspect", help="Inspect platform codebase in read-only mode")
     p_inspect.add_argument("--platform-path", default=DEFAULT_PLATFORM_PATH, help="Path to platform repository")
+    p_inspect.add_argument("--expect-branch", default=None, help="Abort if the platform checkout is not on this branch (e.g. qa)")
     p_inspect.set_defaults(func=cmd_inspect)
 
     # auto-validate
@@ -163,6 +176,7 @@ def main():
     p_validate.add_argument("--run-path", default=None, help="Path to historical or current run artifacts folder")
     p_validate.add_argument("--issue-key", default="TP-6246", help="Jira issue key to update")
     p_validate.add_argument("--dry-run", action="store_true", help="Perform dry-run without network calls")
+    p_validate.add_argument("--expect-branch", default=None, help="Abort if the platform checkout is not on this branch (e.g. qa)")
     p_validate.set_defaults(func=cmd_auto_validate)
 
     args = parser.parse_args()
