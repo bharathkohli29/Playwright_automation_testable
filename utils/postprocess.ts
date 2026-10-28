@@ -4,8 +4,9 @@ import './env'; // loads .env (the background worker is its own process)
 import type { Page } from '@playwright/test';
 import { checkBranchS3, hasAwsCredentials } from './s3Evidence';
 import { describeAwsError } from './awsS3';
-import { uploadBranchToSharePoint, sharepointBranchUrl } from './sharepoint';
+import { uploadBranchToSharePoint, sharepointBranchUrl, sharepointDir } from './sharepoint';
 import { graphConfigured, uploadBranchGraph } from './sharepointGraph';
+import { sessionSaved, uploadBranchSession } from './sharepointSession';
 import { notifyTeams } from './teams';
 
 /**
@@ -30,9 +31,16 @@ export function writePostState(branchDir: string, s: PostState): void {
   try { fs.writeFileSync(path.join(branchDir, 'postprocess.json'), JSON.stringify(s, null, 2)); } catch { /* ignore */ }
 }
 
-/** Evidence folder → SharePoint. Microsoft Graph when SP_CLIENT_ID / SP_TENANT_ID are set (permanent, no local path); else the old OneDrive-shortcut copy. */
+/**
+ * Evidence folder → SharePoint, in this order of preference:
+ *  1. Microsoft Graph          when SP_CLIENT_ID / SP_TENANT_ID are set (app registration by an admin; sign-in: npm run sp:login)
+ *  2. the developer's session  when `npm run sp:login` was done without those (own Microsoft sign-in, no admin needed)
+ *  3. the old OneDrive-shortcut copy (SHAREPOINT_DIR)
+ */
 export async function shareBranch(branchDir: string): Promise<{ skipped: boolean; url?: string; message: string }> {
   if (graphConfigured()) { const r = await uploadBranchGraph(branchDir); console.log(`  ${r.message}`); return { skipped: false, url: r.url || undefined, message: r.message }; }
+  if (sessionSaved()) { const r = await uploadBranchSession(branchDir); console.log(`  ${r.message}`); return { skipped: false, url: r.url, message: r.message }; }
+  if (!sharepointDir()) console.log('  SharePoint upload skipped — sign in once with  npm run sp:login  (your Microsoft work account)');
   const message = uploadBranchToSharePoint(branchDir);
   return { skipped: !message, url: sharepointBranchUrl(branchDir) || undefined, message };
 }

@@ -15,9 +15,9 @@ const TOKEN_FILE = path.join(ROOT, '.auth', 'sharepoint-token.json');
 const SCOPE = 'https://graph.microsoft.com/Files.ReadWrite.All offline_access';
 const GRAPH = process.env.SP_GRAPH_URL || 'https://graph.microsoft.com/v1.0'; // SP_GRAPH_URL: test hook (local mock)
 /** The team's evidence folder (address-bar URL of the parent folder). Override with SP_URL in .env. */
-const DEFAULT_SP_URL = 'https://hopewellsolutions.sharepoint.com/sites/Testable-ExecutionTeam/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FTestable%2DExecutionTeam%2FShared%20Documents%2FGeneral%2FQA%2DTestable%2FTestable%20Whitebox%20Tool%20Execution%2FAutomation%20Evidences%20Dump';
+export const DEFAULT_SP_URL = 'https://hopewellsolutions.sharepoint.com/sites/Testable-ExecutionTeam/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FTestable%2DExecutionTeam%2FShared%20Documents%2FGeneral%2FQA%2DTestable%2FTestable%20Whitebox%20Tool%20Execution%2FAutomation%20Evidences%20Dump';
 
-const clean = (s?: string) => (s || '').trim().replace(/^["']|["']$/g, '');
+export const clean = (s?: string) => (s || '').trim().replace(/^["']|["']$/g, '');
 export const graphConfigured = () => !!(clean(process.env.SP_CLIENT_ID) && clean(process.env.SP_TENANT_ID));
 
 export interface SpTarget { host: string; sitePath: string; library: string; folder: string[] }
@@ -119,17 +119,18 @@ async function exists(r: Resolved, segs: string[]): Promise<boolean> {
 }
 
 /** Same naming rule as the OneDrive copy: <branch>, then <branch>_RUN2 … ; remembered per local folder so a re-copy gives the same name. */
-async function targetName(r: Resolved, day: string, branchFolder: string): Promise<string> {
+export async function chooseFolderName(tag: string, day: string, branchFolder: string, taken: (name: string) => Promise<boolean>): Promise<string> {
   const base = path.basename(branchFolder);
   const mapFile = path.join(path.dirname(path.dirname(branchFolder)), '.sharepoint-graph-map.json');
-  const key = `${day}|${path.resolve(branchFolder)}`;
+  const key = `${tag}|${day}|${path.resolve(branchFolder)}`;
   let map: Record<string, string> = {}; try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* none yet */ }
   if (map[key]) return map[key];
   let name = base; let n = 1;
-  while (await exists(r, [day, name])) { n++; name = `${base}_RUN${n}`; }
+  while (await taken(name)) { n++; name = `${base}_RUN${n}`; }
   try { map[key] = name; fs.writeFileSync(mapFile, JSON.stringify(map, null, 1)); } catch { /* ignore */ }
   return name;
 }
+const targetName = (r: Resolved, day: string, branchFolder: string) => chooseFolderName('graph', day, branchFolder, (n) => exists(r, [day, n]));
 
 async function uploadFile(r: Resolved, segs: string[], file: string): Promise<void> {
   const size = fs.statSync(file).size;
@@ -154,7 +155,7 @@ async function uploadFile(r: Resolved, segs: string[], file: string): Promise<vo
   } finally { fs.closeSync(fd); }
 }
 
-function listFiles(dir: string, rel: string[] = []): string[][] {
+export function listFiles(dir: string, rel: string[] = []): string[][] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? listFiles(path.join(dir, e.name), [...rel, e.name]) : [[...rel, e.name]]));
 }
 
