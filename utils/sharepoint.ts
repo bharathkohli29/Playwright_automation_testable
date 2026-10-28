@@ -6,10 +6,29 @@ import * as path from 'path';
  * In SharePoint open the day's folder (e.g. 22-10-2026) → "Add shortcut to OneDrive". It then shows on this PC as
  *   C:\Users\<you>\OneDrive - <company>\Shortcuts\Testable - Execution team - 22-10-2026
  * Put that path in .env as SHAREPOINT_DIR. After each branch finishes, its whole results folder is copied in there
- * (<SHAREPOINT_DIR>\<branch folder>) and OneDrive uploads it to SharePoint by itself.
+ * (<SHAREPOINT_DIR>\<branch>, a repeat run of the same branch the same day: <branch>_RUN2, _RUN3 …) and OneDrive uploads it to SharePoint by itself.
  * Empty SHAREPOINT_DIR = off. Never throws — a copy problem can not affect the run.
  */
 export const sharepointDir = () => (process.env.SHAREPOINT_DIR || '').trim().replace(/^["']|["']$/g, '');
+
+
+/**
+ * Name of this run's folder in SharePoint: the branch name for the first run of the day, <branch>_RUN2, <branch>_RUN3 … for later runs
+ * of the same branch (a folder with that name already in the day's folder = an earlier run). The choice is remembered per local run folder
+ * (results/.sharepoint-map.json), so copying the SAME run again (or building its link) always gives the same name.
+ */
+function targetName(branchFolder: string, root: string, create: boolean): string {
+  const base = path.basename(branchFolder);
+  const mapFile = path.join(path.dirname(path.dirname(branchFolder)), '.sharepoint-map.json');
+  const key = `${root}|${path.resolve(branchFolder)}`;
+  let map: Record<string, string> = {};
+  try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* none yet */ }
+  if (map[key]) return map[key];
+  let name = base; let n = 1;
+  while (fs.existsSync(path.join(root, name))) { n++; name = `${base}_RUN${n}`; }
+  if (create) { try { map[key] = name; fs.writeFileSync(mapFile, JSON.stringify(map, null, 1)); } catch { /* ignore */ } }
+  return name;
+}
 
 function copyTree(from: string, to: string, stats: { files: number; bytes: number; failed: string[] }) {
   fs.mkdirSync(to, { recursive: true });
@@ -34,7 +53,7 @@ export function uploadBranchToSharePoint(branchFolder: string): string {
       return m;
     }
     if (!fs.existsSync(branchFolder)) return '';
-    const target = path.join(root, path.basename(branchFolder));
+    const target = path.join(root, targetName(branchFolder, root, true));
     const stats = { files: 0, bytes: 0, failed: [] as string[] };
     copyTree(branchFolder, target, stats);
     const mb = (stats.bytes / 1024 / 1024).toFixed(1);
@@ -61,7 +80,7 @@ export function sharepointBranchUrl(branchFolder: string): string {
   if (!base || !sharepointDir()) return '';
   if (/\/:[a-z]:\//i.test(base)) { console.log('  SharePoint link: SHAREPOINT_URL is a "Copy link" sharing link — use the address-bar URL of the day folder instead (no button added)'); return ''; }
   try {
-    const name = path.basename(branchFolder);
+    const root = sharepointDir(); const name = root ? targetName(branchFolder, root, false) : path.basename(branchFolder);
     const u = new URL(base);
     const id = u.searchParams.get('id');
     if (id) { u.searchParams.set('id', `${id.replace(/\/+$/, '')}/${name}`); u.searchParams.delete('viewid'); }

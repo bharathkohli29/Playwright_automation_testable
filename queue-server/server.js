@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
+try { require('./keepAwake').keepAwake('the queue server is running'); } catch { /* ignore */ }
 
 const ROOT = path.join(__dirname, '..');
 const DATA = path.join(__dirname, 'data');
@@ -170,7 +171,7 @@ function applySummary() {
   for (const id of cur.ids) {
     const it = S.items.find((x) => x.id === id);
     const r = sum.find((x) => x.branch === it.branch);
-    if (r && it.status === 'running') { it.status = r.status; it.minutes = r.minutes; it.note = r.note || ''; it.finished = new Date().toISOString(); }
+    if (r && it.status === 'running') { it.status = r.status; it.minutes = r.minutes; it.note = r.note || ''; it.finished = new Date().toISOString(); S.lastServed[it.person] = it.round || S.round; }
   }
 }
 
@@ -187,7 +188,7 @@ function startRound() {
   let runDir = path.join(ROOT, 'results', `merge-flow_${testEnv === 'dev' ? 'dev_' : ''}${stamp}`);
   for (let n = 2; fs.existsSync(runDir); n++) runDir = path.join(ROOT, 'results', `merge-flow_${testEnv === 'dev' ? 'dev_' : ''}${stamp}_${n}`); // only if a second round starts in the same minute
   const logFile = path.join(DATA, 'logs', `round-${S.round}-${stamp}.log`);
-  for (const i of round) { i.status = 'running'; i.round = S.round; i.started = new Date().toISOString(); S.lastServed[i.person] = S.round; }
+  for (const i of round) { i.status = 'running'; i.round = S.round; i.started = new Date().toISOString(); }
   save();
   lines = [];
   cur = { runDir, ids: round.map((i) => i.id), started: Date.now(), logFile };
@@ -203,7 +204,8 @@ function startRound() {
     clearInterval(poll);
     applySummary();
     const noStart = [];
-    for (const id of cur.ids) { const it = S.items.find((x) => x.id === id); if (it.status === 'running' && cur.recover) { it.retries = (it.retries || 0) + 1; if (it.retries >= 2) { it.status = 'failed'; it.note = 'froze twice — skipped'; it.finished = new Date().toISOString(); } else { it.status = 'waiting'; delete it.started; it.note = 'restarted after a freeze'; } continue; } if (it.status === 'running') { noStart.push(it); it.status = cur.stopped ? 'stopped' : 'failed'; it.note = it.note || (cur.stopped ? 'stopped from the PC' : `no result written (exit code ${code})`); it.finished = new Date().toISOString(); } }
+    const startedBranch = (it) => { try { return fs.readdirSync(cur.runDir).some((d) => d === it.branch || d.startsWith(it.branch + '__')); } catch { return false; } };
+    for (const id of cur.ids) { const it = S.items.find((x) => x.id === id); if (it.status === 'running' && !startedBranch(it) && (!cur.stopped || cur.recover)) { it.nostart = (it.nostart || 0) + 1; if (it.nostart >= 2) { noStart.push(it); it.status = 'failed'; it.note = `did not start twice (exit code ${code}) — check login / AWS keys / site`; it.finished = new Date().toISOString(); } else { it.status = 'waiting'; delete it.started; it.note = 'did not start (the run ended first) — back in the queue'; } continue; } /* never started: not a failure, keeps its turn */ if (it.status === 'running' && cur.recover) { it.retries = (it.retries || 0) + 1; if (it.retries >= 2) { it.status = 'failed'; it.note = 'froze twice — skipped'; it.finished = new Date().toISOString(); } else { it.status = 'waiting'; delete it.started; it.note = 'restarted after a freeze'; } continue; } if (it.status === 'running') { noStart.push(it); it.status = cur.stopped ? 'stopped' : 'failed'; it.note = it.note || (cur.stopped ? 'stopped from the PC' : `no result written (exit code ${code})`); it.finished = new Date().toISOString(); } }
     emit(`=== Round ${S.round} finished (exit code ${code}) ===`);
     if (code !== 0 && !cur.stopped) { // crashed / failed: say why, from the last error lines of the output
       const errs = lines.filter((l) => /Error|Timeout|failed|ECONN|ENOTFOUND|expired|Expired|denied|crash|closed|Target page|browser has been closed/i.test(l)).slice(-3).map((l) => l.trim().slice(0, 200));
@@ -280,6 +282,16 @@ function activeBranchIn(dir) {
     return best.n && Date.now() - best.t < 20 * 60 * 1000 ? best.n : '';
   } catch { return ''; }
 }
+/** what the test worker's heartbeat (written every 10 s by mirror.js) says about a silent run */
+function heartbeatNote() {
+  try {
+    const h = JSON.parse(fs.readFileSync(path.join(DATA, 'heartbeat.json'), 'utf8'));
+    const age = Math.round((Date.now() - h.t) / 1000); const at = new Date(h.t).toLocaleTimeString();
+    if (h.exited) return `Worker heartbeat: the test process EXITED at ${at} (it did not hang; it ended).`;
+    if (age < 30) return `Worker heartbeat: the test process is ALIVE (last beat ${age}s ago, ${h.rssMB} MB, event-loop lag ${h.lagMs} ms) — a browser/site call is not returning, so the browser or page is frozen.`;
+    return `Worker heartbeat: the test process STOPPED answering at ${at} (${Math.round(age / 60)} min ago, last ${h.rssMB} MB, last line "${String(h.lastLine || '').slice(0, 90)}") — it was killed, suspended (PC sleep / power saving) or blocked.`;
+  } catch { return 'Worker heartbeat: not available (the run started before this update).'; }
+}
 let warnedFor = 0;
 /** Prints WHY a run seems stuck (nothing printed and no new file for STUCK_MIN minutes) with the most likely cause. */
 function watchdog() {
@@ -294,6 +306,7 @@ function watchdog() {
     const ll = [...lines].reverse().find((l) => l.trim()) || '';
     const atStart = /repo sync|dummy PR|start-of-analysis|Change repository/i.test(ll);
     if ((atStart && idle >= RECOVER_START_MIN * 60000) || idle >= RECOVER_MAX_MIN * 60000) {
+      emit(heartbeatNote());
       emit(`⚠ AUTO-RECOVER: no output and no new file for ${Math.round(idle / 60000)} min (${atStart ? 'froze at the start of a branch' : 'silent too long'}). Stopping this run; finished branches stay finished, the rest go back to waiting and restart automatically.`);
       cur.recover = true; stopRound(); return;
     }
@@ -310,7 +323,7 @@ function watchdog() {
     if (bs.length) {
       const b = path.join(dir, bs[0].n); const has = (f) => fs.existsSync(path.join(b, f));
       const keyAge = (() => { try { return Math.round((Date.now() - fs.statSync(path.join(ROOT, '.env')).mtimeMs) / 60000); } catch { return null; } })();
-      const keyNote = keyAge !== null ? ` The AWS keys in .env were saved ${keyAge} min ago${keyAge >= 55 ? ' — they last about 60 min, so they have most likely EXPIRED' : ''}.` : '';
+      const keyNote = keyAge !== null ? ` The AWS keys in .env were saved ${keyAge >= 120 ? Math.round(keyAge / 60) + ' h' : keyAge + ' min'} ago${keyAge >= 23 * 60 ? ' — they last about 1 day, so they may have EXPIRED' : ' — they last about 1 day, so expiry is unlikely'}.` : '';
       if (has('s3-folders.json') && !has('s3-files.json')) { step = `${bs[0].n}: S3 evidence — folders listed, now reading the files`; cause = `Stuck while reading S3 files.${keyNote} Fix: put fresh AWS keys in .env, stop the run, run only the "S3 evidence" test.`; }
       else if (has('run-details.json') && !has('s3-folders.json')) { step = `${bs[0].n}: site run finished, S3 evidence starting`; cause = `Waiting for S3 (listing the run folder).${keyNote}`; }
       else if (has('s3-files.json') && !has('s3-check.json')) { step = `${bs[0].n}: S3 evidence — checking tool folders`; cause = `Reading the tool files from S3.${keyNote}`; }
@@ -325,9 +338,11 @@ function watchdog() {
   emit(`   Last file written: ${fc.f || '(none)'} at ${fc.t ? new Date(fc.t).toLocaleTimeString() : '-'}`);
   emit(`   Last output line: ${lastLine.slice(0, 160)}`);
   emit(`   Most likely cause: ${cause}`);
+  emit(`   ${heartbeatNote()}`);
   lastLineAt = keepAt; // the warning itself is not progress
 }
-setInterval(() => { try { if (pendingSync) syncBuilds(); watchExternal(); watchdog(); } catch { /* never break the queue */ } }, 5000);
+const FT = require('./freezeTracker'); FT.watchExtensionTriggers(ROOT);
+setInterval(() => { try { FT.serverTick(() => JSON.parse(fs.readFileSync(path.join(DATA, 'heartbeat.json'), 'utf8'))); } catch { /* ignore */ } try { if (pendingSync) syncBuilds(); watchExternal(); watchdog(); } catch { /* never break the queue */ } }, 5000);
 
 function stopRound() {
   if (!cur) return false;
@@ -404,7 +419,7 @@ http.createServer(async (req, res) => {
         S.items.push({ id: ++S.seq, person, url: l, repo: m[1], branch, status: 'waiting', addedAt: new Date().toISOString() });
         added.push(branch);
       }
-      save(); ping(); setTimeout(startRound, 500);
+      save(); ping(); // adding NEVER starts a run: the owner starts it with  start  in this terminal (a round that is already running still takes the new branches in the next round)
       return json(res, 200, { added, skipped });
     }
     // static pages

@@ -47,10 +47,19 @@ export class MergeFlowPage {
    */
   private siteErrorBox = () => this.page.getByText(/Branch unavailable|could not be established for this repository|Select a valid branch/i).last();
 
-  /** The text of the blocking message, or null when the page shows none. */
+  // The chat keeps OLD messages: a "Branch unavailable" of an earlier branch can still be in the thread when the next branch starts.
+  // So only a message that is NEW since this branch began counts (the count at the start is remembered by markSiteErrorBaseline()).
+  private siteErrBase = 0;
+  async markSiteErrorBaseline() {
+    this.siteErrBase = await this.siteErrorBox().count().catch(() => 0);
+  }
+
+  /** The text of the blocking message, or null when the page shows none (that is new for this branch). */
   async siteError(): Promise<string | null> {
     const box = this.siteErrorBox();
-    if (!(await box.isVisible().catch(() => false))) return null;
+    const n = await box.count().catch(() => 0);
+    if (n < this.siteErrBase) this.siteErrBase = n; // a fresh thread / page: nothing old is left
+    if (n <= this.siteErrBase || !(await box.isVisible().catch(() => false))) return null;
     const txt = (await box.locator('xpath=ancestor::*[self::div or self::section][2]').innerText().catch(() => '')) || (await box.innerText().catch(() => ''));
     return txt.replace(/\s+/g, ' ').trim().slice(0, 300) || 'blocking message on the page';
   }
@@ -82,6 +91,7 @@ export class MergeFlowPage {
     if (useSidebar && (await side.isVisible().catch(() => false))) await side.click();
     else await this.gotoWithRetry('/execution-assistant');
     await expect(this.btn('Change repository / branch')).toBeVisible({ timeout: 45_000 });
+    await this.markSiteErrorBaseline(); // messages already in the chat belong to earlier branches
   }
 
   /** The QA site sometimes times out / drops the connection: retry the navigation with a back-off. */
@@ -206,6 +216,18 @@ export class MergeFlowPage {
 
   /** Step 2–3: Change repository / branch → Connect / Import repository → wait for the repo list. */
   async connectRepo() {
+    // hard cap: normal retries take at most ~9 min; a browser call that never returns must not hold the whole run
+    const capMs = Number(process.env.REPO_SYNC_CAP_MIN || 14) * 60_000;
+    let t: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        this.connectRepoSteps(),
+        new Promise<never>((_, rej) => { t = setTimeout(() => rej(new Error(`ENVIRONMENT: the repository step did not return within ${capMs / 60000} min — the browser stopped answering (frozen page or browser). This branch is marked failed and the run continues.`)), capMs); }),
+      ]);
+    } finally { if (t) clearTimeout(t); }
+  }
+
+  private async connectRepoSteps() {
     const repoListReady = this.page
       .getByText(/Synced \d+ repositories|Here are \d+ to start|pick one, or open View all/i)
       .or(this.page.locator('button').filter({ hasText: /^View all \d+ repositories$/ }))

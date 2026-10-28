@@ -4,7 +4,7 @@
  * marked as confirmed, the others are best guesses (a FAIL on a guessed name says so).
  * Several candidate folder names are tried in order (e.g. TypeScript often shares the JavaScript folder).
  */
-export type Language = 'javascript' | 'typescript' | 'csharp' | 'python';
+export type Language = 'javascript' | 'typescript' | 'csharp' | 'python' | 'java';
 
 /** Classifications of a technique that have their own tool(s). primary: [] = primary tool is N/A (only the secondary is checked);
  *  one name = that tool; several names = a combined tool (every folder is checked and the data is shown together). */
@@ -150,7 +150,32 @@ const PY: TechniqueTool[] = [
   m('Development Process Analysis', 'Code Churn', 'pydriller', 'git_churn'),
 ];
 
-const MAPS: Record<Language, TechniqueTool[]> = { javascript: JS, typescript: TS, csharp: CS, python: PY };
+const JV: TechniqueTool[] = [
+  m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'pmd'),
+  m('Readability / Maintainability', 'Cognitive Complexity', 'ck', 'pmd'),
+  m('Code Quality Auditing', 'Code Duplication', 'cpd'),
+  m('Static Code Analysis', 'Lint / Rule Violations', 'checkstyle', 'pmd'),
+  m('Static Code Analysis', 'Secret Detection', 'detect-secrets'),
+  m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'spotbugs'),
+  m('Security White-box Testing', 'Dependency Risk (SCA)', 'owasp-depcheck', 'maven-versions', 'maven-checksum'),
+  m('Control Flow Testing', 'Statement Coverage', 'jacoco'),
+  m('Control Flow Testing', 'Branch Coverage', 'jacoco'),
+  m('Mutation Testing', 'Mutation Score', 'pitest'),
+  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'coverage_delta', 'java-coverage-delta'),
+  m('Data Flow Testing', 'All Definition Coverage', 'def_use', 'java-all-defs-uses'),
+  m('Data Flow Testing', 'All Uses Coverage', 'def_use', 'java-all-defs-uses'),
+  m('Development Process Analysis', 'Code Churn', 'pydriller', 'git_churn'),
+  m('Code Quality', 'Technical Debt', 'pydriller'),
+  m('Code Quality', 'Test Coverage', 'jacoco'),
+  m('Compliance Testing', 'Secret Detection', 'gitleaks'),
+  m('Security Testing', 'Secret Detection', 'gitleaks'),
+  m('Performance Testing', 'Static Analysis', 'semgrep-perf-static'),
+  m('Performance Testing', 'Dependency Analysis', 'java-perf-dependency'),
+  m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'),
+  m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'),
+];
+
+const MAPS: Record<Language, TechniqueTool[]> = { javascript: JS, typescript: TS, csharp: CS, python: PY, java: JV };
 
 export const toolsFor = (language: Language): TechniqueTool[] => MAPS[language];
 
@@ -160,6 +185,7 @@ export function parseLanguages(names: string[]): { languages: Language[]; ignore
   for (const raw of names) {
     const n = raw.trim().toLowerCase();
     if (/^c#$|c-?sharp|\.net/.test(n)) languages.add('csharp');
+    else if (/^java$/.test(n)) languages.add('java');
     else if (/^(java ?script|js)$/.test(n)) languages.add('javascript');
     else if (/^(type ?script|ts)$/.test(n)) languages.add('typescript');
     else if (/^(python|py)$/.test(n)) languages.add('python');

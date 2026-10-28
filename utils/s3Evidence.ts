@@ -4,6 +4,11 @@ import { S3Reader } from './awsS3';
 import { Language, TechniqueTool, parseLanguages, toolsFor } from './techniqueTools';
 import { mergeTaxonomy } from './mergeTaxonomy';
 import { validatePython, summaryLine } from './pyValidate';
+import { writeBugReports } from './bugReport';
+import { validateJavaScript, jsSummaryLine } from './jsValidate';
+import { validateCSharp, csSummaryLine } from './csValidate';
+import { validateJava, javaSummaryLine } from './javaValidate';
+import { validateTypeScript, tsSummaryLine } from './tsValidate';
 import { analyseFile, detectLanguages, verdict, Verdict } from './s3Check';
 
 function branchLanguages(bd: string): { languages: Language[]; source: string; ignored: string[] } {
@@ -16,12 +21,12 @@ function branchLanguages(bd: string): { languages: Language[]; source: string; i
   // no "Repository details" was read (e.g. the site said "This commit is already analyzed" and skipped the preview):
   // our test branches are named <LANG>_<version>_… — JS_ / TS_ / PY_ / CS_ — so the prefix tells the language
   const pre = path.basename(bd).split('_')[0].toUpperCase();
-  const byPrefix: Record<string, string[]> = { JS: ['JavaScript'], TS: ['TypeScript'], PY: ['Python'], CS: ['C#'] };
+  const byPrefix: Record<string, string[]> = { JS: ['JavaScript'], TS: ['TypeScript'], PY: ['Python'], CS: ['C#'], JV: ['Java'] };
   if (byPrefix[pre]) {
     const r = parseLanguages(byPrefix[pre]);
     if (r.languages.length) return { ...r, source: `branch name prefix "${pre}_" (no repo-details.json)` };
   }
-  return { languages: ['javascript'], source: 'default (no repo-details.json, branch name has no JS_/TS_/PY_/CS_ prefix)', ignored: [] };
+  return { languages: ['javascript'], source: 'default (no repo-details.json, branch name has no JS_/TS_/PY_/CS_/JV_ prefix)', ignored: [] };
 }
 
 interface ToolJson { key: string; empty: boolean; note: string; langs: Language[] }
@@ -34,7 +39,7 @@ export const hasAwsCredentials = () => !!(process.env.AWS_ACCESS_KEY_ID || proce
  * S3 evidence for ONE branch folder (needs run-details.json in it): reads the tool folders of that run,
  * writes s3-check.json / s3-folders.json / s3-evidence/ and rebuilds the taxonomy report with the S3 columns.
  */
-export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): Promise<void> {
+export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader(), repo?: string): Promise<void> {
   const r = JSON.parse(fs.readFileSync(path.join(bd, 'run-details.json'), 'utf8'));
   const base = `development/cell-001/${r.tenant_id}/${r.project_id}/${r.repository_id}/${r.branch_id}/${r.branch_name}/${r.commit_sha}/${r.run_id}/`;
   await s3.check(base);
@@ -174,8 +179,29 @@ export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader()): 
     python = validatePython(bd, rows, inventory);
     if (python) console.log(`  Python tool validation: ${summaryLine(python)}`);
   } catch (e) { console.log(`  Python tool validation skipped: ${e instanceof Error ? e.message : e}`); }
-  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, python, checks: rows }, null, 2));
+  // JavaScript branch: the same judging with the Node version matrix (never fails the run)
+  let javascript: any = null;
+  try {
+    javascript = validateJavaScript(bd, rows, inventory);
+    if (javascript) console.log(`  JavaScript tool validation: ${jsSummaryLine(javascript)}`);
+  } catch (e) { console.log(`  JavaScript tool validation skipped: ${e instanceof Error ? e.message : e}`); }
+  // C# branch: the same judging with the .NET version matrix (never fails the run)
+  let typescript: any = null;
+  try { typescript = validateTypeScript(bd, rows, inventory); if (typescript) console.log(`  TypeScript tool validation: ${tsSummaryLine(typescript)}`); } catch (e) { console.log(`  TypeScript tool validation skipped: ${e instanceof Error ? e.message : e}`); }
+  let java: any = null;
+  try { java = validateJava(bd, rows, inventory); if (java) console.log(`  Java tool validation: ${javaSummaryLine(java)}`); } catch (e) { console.log(`  Java tool validation skipped: ${e instanceof Error ? e.message : e}`); }
+  let csharp: any = null;
+  try {
+    csharp = validateCSharp(bd, rows, inventory);
+    if (csharp) console.log(`  C# tool validation: ${csSummaryLine(csharp)}`);
+  } catch (e) { console.log(`  C# tool validation skipped: ${e instanceof Error ? e.message : e}`); }
+  fs.writeFileSync(path.join(bd, 's3-check.json'), JSON.stringify({ repo: repo || '', branch: r.branch_name, run_id: r.run_id, commit_sha: r.commit_sha, languages, s3_path: base, python, javascript, typescript, csharp, java, checks: rows }, null, 2));
   const c = (v: Verdict) => rows.filter((x) => x.result === v).length;
   mergeTaxonomy(bd); // taxonomy report + UI value + S3 tool / comment columns
+  // bug drafts (PDF + screenshot + Jira text) for the platform defects of a Python branch — saved in <branch>/bugs, never filed, never fails the run
+  try {
+    const made = await writeBugReports(bd, repo);
+    if (made.length) console.log(`  Bug drafts: ${made.length} platform defect(s) → ${bd}\\bugs  (${made.join(', ')})`);
+  } catch (e) { console.log(`  Bug drafts skipped: ${e instanceof Error ? e.message : e}`); }
   console.log(`  → ${bd}\\s3-check.json   (PASS ${c('PASS')}, EMPTY ${c('EMPTY')}, FAIL ${c('FAIL')}${c('NA') ? `, N/A ${c('NA')}` : ''})`);
 }

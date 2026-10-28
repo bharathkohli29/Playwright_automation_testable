@@ -25,10 +25,10 @@ const RETIRED = ['testmon'];
 const FIXTURES = ['cert-delay', 'cert-retry'];
 export const PY_TOOLS = [...BASE, ...FROM38, ...PARSER38_312, ...EXEC39, 'pymcdc', ...RETIRED, ...FIXTURES];
 
-const nn = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+export const nn = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 /** other folder names a tool is saved under */
 const ALIAS: Record<string, string[]> = { 'py-coverage-delta': ['coverage_delta', 'coverage-delta'], 'git-churn': ['git_churn'], 'detect-secrets': ['detect_secrets'], 'pip-outdated': ['pip_outdated'], 'pip-audit': ['pip_audit'] };
-const PLATFORM_FOLDERS = ['_shared', 'github-access-control', 'github_branch_protection', 'github-branch-protection'].map(nn);
+export const PLATFORM_FOLDERS = ['_shared', 'github-access-control', 'github_branch_protection', 'github-branch-protection'].map(nn);
 const FOREIGN = /^(eslint|ts-|js-|jscpd-(js|ts)|npm|nyc|stryker|madge|dependency-cruiser|checkstyle|spotbugs|pmd|jacoco|pitest|roslyn|coverlet|dotnet|cyclonedx-npm|license-checker|javascript-|typescript-|java-|csharp-|cs-|knip|oxlint|biome|vitest|jest|maven|gradle|nuget)/i;
 
 export interface PyVersion { major: number; minor: number; label: string }
@@ -65,15 +65,15 @@ export function expectedTools(v: PyVersion): string[] {
 }
 
 // ---------- reading the saved evidence ----------
-type FileMap = Record<string, any>; // file name → parsed json (or raw text)
+export type FileMap = Record<string, any>; // file name → parsed json (or raw text)
 
-function folderFor(inventoryFolders: string[], tool: string): string | undefined {
+export function folderFor(inventoryFolders: string[], tool: string): string | undefined {
   const want = [tool, ...(ALIAS[tool] || [])].map(nn);
   return inventoryFolders.find((f) => want.includes(nn(f.replace(/\/$/, ''))));
 }
 
 /** all json files saved for one tool folder: name → parsed (first task folder with data wins per name) */
-function loadTool(bd: string, folder: string): FileMap {
+export function loadTool(bd: string, folder: string): FileMap {
   const out: FileMap = {};
   const root = path.join(bd, 's3-evidence', folder.replace(/\/$/, ''));
   const walk = (d: string) => {
@@ -83,8 +83,8 @@ function loadTool(bd: string, folder: string): FileMap {
       if (e.isDirectory()) { walk(f); continue; }
       let size = 0; try { size = fs.statSync(f).size; } catch { /* ignore */ }
       let val: any = { __size: size };
-      if (/\.(json)$/i.test(e.name) && size < 40_000_000) { try { val = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { val = { __size: size, __invalid: true }; } }
-      else if (/\.(txt|xml|jsonl)$/i.test(e.name)) val = { __size: size, __text: true };
+      if (/\.(json|sarif)$/i.test(e.name) && size < 40_000_000) { try { val = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { val = { __size: size, __invalid: true }; } }
+      else if (/\.(txt|xml|jsonl)$/i.test(e.name)) { let head = ''; try { const fd = fs.openSync(f, 'r'); const b = Buffer.alloc(Math.min(size, 1200)); fs.readSync(fd, b, 0, b.length, 0); fs.closeSync(fd); head = b.toString('utf8'); } catch { /* ignore */ } val = { __size: size, __text: true, __head: head }; }
       const prev = out[e.name];
       if (prev === undefined || (isBlank(prev) && !isBlank(val))) out[e.name] = val;
     }
@@ -92,13 +92,13 @@ function loadTool(bd: string, folder: string): FileMap {
   walk(root);
   return out;
 }
-const isBlank = (v: any): boolean => v === null || v === undefined || v === '' || v === 0 || v === false
+export const isBlank = (v: any): boolean => v === null || v === undefined || v === '' || v === 0 || v === false
   || (Array.isArray(v) && v.every(isBlank)) || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).filter((k) => !k.startsWith('__')).every((k) => isBlank(v[k])) && !('__size' in v && v.__size > 2 && v.__text));
-const len = (v: any) => (Array.isArray(v) ? v.length : v && typeof v === 'object' ? Object.keys(v).length : 0);
-const num = (v: any): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+export const len = (v: any) => (Array.isArray(v) ? v.length : v && typeof v === 'object' ? Object.keys(v).length : 0);
+export const num = (v: any): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 export interface PyResult { status: PyStatus; note: string; scanned?: number }
-const R = (status: PyStatus, note: string, scanned?: number): PyResult => ({ status, note, scanned });
+export const R = (status: PyStatus, note: string, scanned?: number): PyResult => ({ status, note, scanned });
 const clean = (what: string, scanned: number) => R('CLEAN', `clean code — ${what}, ${scanned} file(s) scanned`, scanned);
 const falseEmpty = (what: string) => R('FALSE_EMPTY', `${what} — 0 files scanned although the repo has .py files`, 0);
 const unknown = (what: string) => R('EMPTY_UNKNOWN', `${what} (scan count unknown)`);
@@ -234,11 +234,14 @@ export function checkTool(tool: string, f: FileMap): PyResult {
 export interface PySummary {
   version: string; expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
   missing: string[]; naByDesign: string[]; outsideMatrix: string[]; contamination: string[];
+  defects: PyDefect[]; // platform bugs found (the only ones a bug report is written for) — see bugReport.ts
+  repoDefects: string[]; // failed because of the customer repo: flagged, never filed against the platform
 }
+export interface PyDefect { tool: string; tag: '[Planning Defect]' | '[False Empty Defect]' | '[Runner Execution Defect]' | '[Language Contamination]'; observed: string; note: string; folder?: string; ranOutsideMatrix?: boolean }
 const sev = (s: PyStatus) => (s === 'FAILED' ? 5 : s === 'FALSE_EMPTY' ? 4 : s === 'NO_DATA' ? 3 : s === 'EMPTY_UNKNOWN' ? 2 : s === 'CLEAN' ? 1 : 0);
 
 /** classify a failed tool: customer repo problem vs platform (PROMPT_Python_Tool_Bug_Classification_and_Filing, section 2) */
-function failureKind(note: string): { tag: string; repo: boolean } {
+export function failureKind(note: string): { tag: string; repo: boolean } {
   if (/ModuleNotFoundError|ImportError|No module named|AssertionError|test(s)? failed|SyntaxError in (customer|repo)/i.test(note)) return { tag: '[Repo Defect — not a platform bug]', repo: true };
   if (/command not found|not found in PATH|No such file or directory.*bin|binary|Traceback|timed? ?out|timeout|permanent_runner_error|OOM|killed/i.test(note)) return { tag: '[Runner Execution Defect]', repo: false };
   return { tag: '[Failed — cause unknown, check the tool log]', repo: false };
@@ -296,21 +299,23 @@ export function validatePython(bd: string, rows: any[], inventory: Record<string
   }
 
   // 2) whole-run summary: every expected tool, independent of the table rows
-  const sum: PySummary = { version: v.label, expected: expected.length, ok: 0, clean: 0, empty: 0, falseEmpty: 0, failed: 0, missing: [], naByDesign: [], outsideMatrix: [], contamination: [] };
+  const sum: PySummary = { version: v.label, expected: expected.length, ok: 0, clean: 0, empty: 0, falseEmpty: 0, failed: 0, missing: [], naByDesign: [], outsideMatrix: [], contamination: [], defects: [], repoDefects: [] };
   for (const t of PY_TOOLS) {
     const fo = folderFor(folders, t);
     const why = notExpectedReason(t, v);
-    if (why) { if (fo) sum.outsideMatrix.push(t); else if (!RETIRED.includes(t) && !FIXTURES.includes(t)) sum.naByDesign.push(t); continue; }
+    if (why) { if (fo) { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on Python ${v.label} although it must be excluded (${why})`, folder: fo, ranOutsideMatrix: true }); } else if (!RETIRED.includes(t) && !FIXTURES.includes(t)) sum.naByDesign.push(t); continue; }
     if (!expected.includes(t)) continue; // PY_IGNORE_TOOLS
-    if (!fo) { sum.missing.push(t); continue; }
+    if (!fo) { sum.missing.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Python ${v.label} but was not triggered — no folder in the run` }); continue; }
     const r = checkTool(t, loadTool(bd, fo));
     if (r.status === 'OK') sum.ok++; else if (r.status === 'CLEAN') sum.clean++;
-    else if (r.status === 'FALSE_EMPTY') { sum.falseEmpty++; } else if (r.status === 'FAILED') sum.failed++; else sum.empty++;
+    else if (r.status === 'FALSE_EMPTY') { sum.falseEmpty++; sum.defects.push({ tool: t, tag: '[False Empty Defect]', observed: 'Empty JSON with 0 files scanned', note: r.note, folder: fo }); }
+    else if (r.status === 'FAILED') { sum.failed++; const k = failureKind(r.note); if (k.repo) sum.repoDefects.push(t); else sum.defects.push({ tool: t, tag: '[Runner Execution Defect]', observed: 'FAILED', note: r.note, folder: fo }); }
+    else sum.empty++;
   }
   for (const f of folders) {
     const n = nn(f.replace(/\/$/, ''));
     if (PLATFORM_FOLDERS.includes(n)) continue;
-    if (FOREIGN.test(f.replace(/\/$/, '')) && !PY_TOOLS.some((t) => [t, ...(ALIAS[t] || [])].map(nn).includes(n))) sum.contamination.push(f.replace(/\/$/, ''));
+    if (FOREIGN.test(f.replace(/\/$/, '')) && !PY_TOOLS.some((t) => [t, ...(ALIAS[t] || [])].map(nn).includes(n))) { const c = f.replace(/\/$/, ''); sum.contamination.push(c); sum.defects.push({ tool: c, tag: '[Language Contamination]', observed: 'FOREIGN_TOOL_PLANNED', note: `${c} (a non-Python tool) was planned for a Python ${v.label} branch`, folder: f }); }
   }
   return sum;
 }
