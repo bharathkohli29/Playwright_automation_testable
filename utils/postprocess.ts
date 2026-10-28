@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import { checkBranchS3, hasAwsCredentials } from './s3Evidence';
 import { describeAwsError } from './awsS3';
 import { uploadBranchToSharePoint, sharepointBranchUrl } from './sharepoint';
+import { graphConfigured, uploadBranchGraph } from './sharepointGraph';
 import { notifyTeams } from './teams';
 
 /**
@@ -29,6 +30,13 @@ export function writePostState(branchDir: string, s: PostState): void {
   try { fs.writeFileSync(path.join(branchDir, 'postprocess.json'), JSON.stringify(s, null, 2)); } catch { /* ignore */ }
 }
 
+/** Evidence folder → SharePoint. Microsoft Graph when SP_CLIENT_ID / SP_TENANT_ID are set (permanent, no local path); else the old OneDrive-shortcut copy. */
+export async function shareBranch(branchDir: string): Promise<{ skipped: boolean; url?: string; message: string }> {
+  if (graphConfigured()) { const r = await uploadBranchGraph(branchDir); console.log(`  ${r.message}`); return { skipped: false, url: r.url || undefined, message: r.message }; }
+  const message = uploadBranchToSharePoint(branchDir);
+  return { skipped: !message, url: sharepointBranchUrl(branchDir) || undefined, message };
+}
+
 export async function runPostProcess(job: PostJob): Promise<boolean> {
   const st: PostState = { state: 'running', steps: { s3: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
@@ -48,12 +56,13 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     await checkBranchS3(job.branchDir, undefined, job.repo);
   });
   // a failed S3 step does not stop the copy / message: the site run itself passed
-  await step('sharepoint', async () => { if (!uploadBranchToSharePoint(job.branchDir)) return 'skipped'; });
+  let evidenceUrl: string | undefined;
+  await step('sharepoint', async () => { const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
   await step('teams', async () => {
     // notifyTeams does not use the page; a passed branch never needs a screenshot
     await notifyTeams(undefined as unknown as Page, {
       branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
-      minutes: job.minutes, branchDir: job.branchDir, evidenceUrl: sharepointBranchUrl(job.branchDir) || undefined,
+      minutes: job.minutes, branchDir: job.branchDir, evidenceUrl,
     });
   });
 

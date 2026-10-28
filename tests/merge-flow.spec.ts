@@ -9,7 +9,7 @@ import { checkBranchS3, hasAwsCredentials } from '../utils/s3Evidence';
 import { describeAwsError } from '../utils/awsS3';
 import { dummyPrEnabled, pushDummyCommit } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
-import { uploadBranchToSharePoint, sharepointBranchUrl } from '../utils/sharepoint';
+import { shareBranch } from '../utils/postprocess';
 import { postprocessMode, enqueuePostProcess, echoWorkerLog, drainPostProcess } from '../utils/postprocessQueue';
 
 const builds = loadBuilds();
@@ -146,12 +146,13 @@ builds.forEach((build, index) => {
       // PASSED branches only: copy the folder to SharePoint through the OneDrive shortcut in .env (SHAREPOINT_DIR); empty = off; never throws. Failed / blocked branches stay local (the Teams picture is enough).
       // (handed-off branches: the background worker does the copy and the message after the S3 check)
       if (!handedOff) {
-        if (status === 'passed') uploadBranchToSharePoint(branchDir(build.dir));
+        let evidenceUrl: string | undefined;
+        if (status === 'passed') { try { evidenceUrl = (await shareBranch(branchDir(build.dir))).url; } catch (e) { console.log(`  SharePoint: not copied (${e instanceof Error ? e.message : e}) — the run is not affected`); } }
         // Teams message (add-on; only when TEAMS_WEBHOOK_URL is set; never throws)
         await notifyTeams(page, {
           branch: build.branch, repo: build.repo, status, note, url: page.url(),
           minutes: Math.round((Date.now() - started) / 60000), branchDir: branchDir(build.dir),
-          evidenceUrl: status === 'passed' ? sharepointBranchUrl(branchDir(build.dir)) || undefined : undefined,
+          evidenceUrl: status === 'passed' ? evidenceUrl : undefined,
           imagePath: status === 'passed' ? undefined : `${branchDir(build.dir, 'errors')}/failure.png`,
         });
       }
