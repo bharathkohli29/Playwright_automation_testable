@@ -10,6 +10,7 @@ import { describeAwsError } from '../utils/awsS3';
 import { dummyPrEnabled, pushDummyCommit } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
 import { uploadBranchToSharePoint, sharepointBranchUrl } from '../utils/sharepoint';
+import { postprocessMode, enqueuePostProcess, echoWorkerLog, drainPostProcess } from '../utils/postprocessQueue';
 
 const builds = loadBuilds();
 test.skip(builds.length === 0, 'No branches configured — fill in builds.json');
@@ -25,6 +26,7 @@ builds.forEach((build, index) => {
     const started = Date.now();
     let status = 'passed';
     let note = '';
+    let handedOff = false; // true = the background worker does this branch's S3 check, SharePoint copy and Teams message
 
     // step 0 (only when DUMMY_PR=yes in .env): push a dummy README comment so this branch has a NEW commit to analyse
     if (dummyPrEnabled()) pushDummyCommit(build.repo, build.branch);
@@ -109,9 +111,11 @@ builds.forEach((build, index) => {
         }
       });
 
-      // S3 evidence of THIS branch right away (login → branch e2e → S3 report → next branch …). A problem here never fails the site run.
+      // POSTPROCESS=background (default): S3 evidence, SharePoint copy and Teams message run in a separate worker (no browser needed),
+      // so the next branch starts at once and the platform is not left idle. POSTPROCESS=inline: done here, one branch after the other.
       const bdir = branchDir(build.dir);
-      if (fs.existsSync(`${bdir}/run-details.json`)) {
+      const background = postprocessMode() === 'background';
+      if (!background && fs.existsSync(`${bdir}/run-details.json`)) {
         if (!hasAwsCredentials()) console.log('  S3 check skipped — no AWS keys in .env (paste the QA-S3-Readonly keys, or run npm run s3 later)');
         else {
           try { console.log('\n  S3 evidence for this branch …'); await checkBranchS3(bdir, undefined, build.repo); }
@@ -120,6 +124,9 @@ builds.forEach((build, index) => {
       }
 
       cases.finish();
+      if (background && fs.existsSync(`${bdir}/run-details.json`)) {
+        handedOff = enqueuePostProcess({ branchDir: bdir, branch: build.branch, repo: build.repo, url: page.url(), minutes: Math.round((Date.now() - started) / 60000) });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       status = /BLOCKED/.test(msg) ? 'blocked' : /ENVIRONMENT/.test(msg) ? 'environment' : 'failed';
@@ -137,14 +144,18 @@ builds.forEach((build, index) => {
         minutes: Math.round((Date.now() - started) / 60000),
       });
       // PASSED branches only: copy the folder to SharePoint through the OneDrive shortcut in .env (SHAREPOINT_DIR); empty = off; never throws. Failed / blocked branches stay local (the Teams picture is enough).
-      if (status === 'passed') uploadBranchToSharePoint(branchDir(build.dir));
-      // Teams message (add-on; only when TEAMS_WEBHOOK_URL is set; never throws)
-      await notifyTeams(page, {
-        branch: build.branch, repo: build.repo, status, note, url: page.url(),
-        minutes: Math.round((Date.now() - started) / 60000), branchDir: branchDir(build.dir),
-        evidenceUrl: status === 'passed' ? sharepointBranchUrl(branchDir(build.dir)) || undefined : undefined,
-        imagePath: status === 'passed' ? undefined : `${branchDir(build.dir, 'errors')}/failure.png`,
-      });
+      // (handed-off branches: the background worker does the copy and the message after the S3 check)
+      if (!handedOff) {
+        if (status === 'passed') uploadBranchToSharePoint(branchDir(build.dir));
+        // Teams message (add-on; only when TEAMS_WEBHOOK_URL is set; never throws)
+        await notifyTeams(page, {
+          branch: build.branch, repo: build.repo, status, note, url: page.url(),
+          minutes: Math.round((Date.now() - started) / 60000), branchDir: branchDir(build.dir),
+          evidenceUrl: status === 'passed' ? sharepointBranchUrl(branchDir(build.dir)) || undefined : undefined,
+          imagePath: status === 'passed' ? undefined : `${branchDir(build.dir, 'errors')}/failure.png`,
+        });
+      }
+      echoWorkerLog(); // lines the background worker wrote meanwhile (earlier branches)
     }
   });
 });
@@ -154,4 +165,10 @@ test('Logout', async ({ page }) => {
   const flow = new MergeFlowPage(page);
   await flow.gotoWithRetry('/execution-assistant');
   await flow.logout();
+});
+
+// After the logout: wait until the background worker has finished the S3 check / SharePoint copy / Teams message of every branch.
+test('Background post-processing finishes', async () => {
+  test.setTimeout(75 * 60_000);
+  if (postprocessMode() === 'background') await drainPostProcess(70);
 });
