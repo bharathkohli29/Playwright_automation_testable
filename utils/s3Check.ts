@@ -85,6 +85,7 @@ export function detectLanguages(text: string): Language[] {
   if (has(/\.(js|jsx|mjs|cjs)(?![A-Za-z0-9])/i)) out.push('javascript');
   if (has(/\.(ts|tsx|mts|cts)(?![A-Za-z0-9])/i)) out.push('typescript');
   if (has(/\.py(?![A-Za-z0-9])/i)) out.push('python');
+  if (has(/\.java(?![A-Za-z0-9])/i)) out.push('java');
   if (has(/\.(cs|cshtml|csx|csproj)(?![A-Za-z0-9])/i)) out.push('csharp');
   return out;
 }

@@ -141,7 +141,7 @@ builds.forEach((build, index) => {
       // Teams message (add-on; only when TEAMS_WEBHOOK_URL is set; never throws)
       await notifyTeams(page, {
         branch: build.branch, repo: build.repo, status, note, url: page.url(),
-        minutes: Math.round((Date.now() - started) / 60000),
+        minutes: Math.round((Date.now() - started) / 60000), branchDir: branchDir(build.dir),
         evidenceUrl: status === 'passed' ? sharepointBranchUrl(branchDir(build.dir)) || undefined : undefined,
         imagePath: status === 'passed' ? undefined : `${branchDir(build.dir, 'errors')}/failure.png`,
       });

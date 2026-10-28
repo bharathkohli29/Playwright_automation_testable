@@ -20,20 +20,56 @@ export interface TeamsInfo {
   minutes?: number;
   imagePath?: string; // errors/failure.png
   evidenceUrl?: string; // this branch's folder in SharePoint (optional)
+  branchDir?: string; // this branch's results folder (to read s3-check.json for the tool summary)
 }
 
-const card = (body: unknown[], url?: string, evidence?: string) => ({
+/** Tool-validation summary (language + version, tool counts, tools with a bug) read from <branch folder>/s3-check.json. Empty when there is none. */
+function toolSummary(dir?: string): unknown[] {
+  try {
+    if (!dir) return [];
+    const j = JSON.parse(fs.readFileSync(path.join(dir, 's3-check.json'), 'utf8'));
+    const out: unknown[] = [];
+    for (const [key, name, runtime] of [['python', 'Python', 'Python'], ['javascript', 'JavaScript', 'Node'], ['typescript', 'TypeScript', 'Node'], ['csharp', 'C#', 'C#'], ['java', 'Java', 'Java']] as const) {
+      const s = j[key]; if (!s || !s.version) continue;
+      const defects: { tool: string; tag: string }[] = s.defects || [];
+      const repo: string[] = s.repoDefects || [];
+      const line = `${name} ${runtime === 'Node' ? 'Node ' : ''}${runtime === 'C#' ? (s.version || '').replace(/^\.NET/, '.NET') : s.version} — ${Math.max(0, s.expected - (s.missing?.length || 0) - (s.empty || 0) - (s.falseEmpty || 0) - (s.failed || 0))}/${s.expected} expected tools OK` + (s.naByDesign?.length ? ` · ${s.naByDesign.length} N/A by design` : '');
+      out.push({ type: 'TextBlock', text: `**${line}**`, wrap: true, spacing: 'Medium' });
+      if (!defects.length && !repo.length) { out.push({ type: 'TextBlock', text: '✅ No tool bugs found', wrap: true, spacing: 'None', color: 'Good' }); continue; }
+      const lines = defects.slice(0, 10).map((d) => `• ${d.tool} — ${String(d.tag).replace(/[\[\]]/g, '')}`);
+      if (defects.length > 10) lines.push(`• … and ${defects.length - 10} more`);
+      if (lines.length) out.push({ type: 'TextBlock', text: `❌ ${defects.length} tool bug${defects.length > 1 ? 's' : ''} (draft reports saved):\n\n${lines.join('\n\n')}`, wrap: true, spacing: 'None', color: 'Attention' });
+      if (repo.length) out.push({ type: 'TextBlock', text: `⚠ Repo-side failures (not platform bugs): ${repo.slice(0, 8).join(', ')}`, wrap: true, spacing: 'None', isSubtle: true });
+    }
+    if (!out.length) { // no validation summary (for example Python 3.6 or a language without a tool matrix): still show language + version
+      let rd: any = {}; try { rd = JSON.parse(fs.readFileSync(path.join(dir, 'repo-details.json'), 'utf8')); } catch { /* ignore */ }
+      const lang = rd['Language'] || (Array.isArray(rd.languages) ? rd.languages.join(', ') : ''); const ver = rd['Language version'];
+      if (!lang && !ver) return [];
+      const rows: any[] = Array.isArray(j.checks) ? j.checks : [];
+      const noOut = rows.filter((r) => r && r.result === 'FAIL').map((r) => r.tool).filter(Boolean);
+      out.push({ type: 'TextBlock', text: `**${lang}${ver ? ` ${ver}` : ''}** — tool results were not judged (no tool matrix for this version)`, wrap: true, spacing: 'Medium' });
+      if (false && noOut.length) out.push({ type: 'TextBlock', text: `${noOut.length} tools gave no output: ${noOut.slice(0, 10).join(', ')}${noOut.length > 10 ? ' …' : ''}`, wrap: true, spacing: 'None', isSubtle: true });
+    }
+    return out;
+  } catch { return []; }
+}
+
+const card = (body: unknown[], url?: string, evidence?: string, after: unknown[] = []) => ({
   type: 'message',
   attachments: [{
     contentType: 'application/vnd.microsoft.card.adaptive',
     content: {
       $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
       type: 'AdaptiveCard', version: '1.4',
-      body,
-      ...(url || evidence ? { actions: [
-        ...(url ? [{ type: 'Action.OpenUrl', title: 'Open the run', url }] : []),
-        ...(evidence ? [{ type: 'Action.OpenUrl', title: 'Open evidence folder (SharePoint, uploads in a few minutes)', url: evidence }] : []),
-      ] } : {}),
+      // buttons sit inside the body (ActionSet) so the tool summary can come AFTER them
+      body: [
+        ...body,
+        ...(url || evidence ? [{ type: 'ActionSet', actions: [
+          ...(url ? [{ type: 'Action.OpenUrl', title: 'Open the run', url }] : []),
+          ...(evidence ? [{ type: 'Action.OpenUrl', title: 'Open evidence folder (SharePoint, uploads in a few minutes)', url: evidence }] : []),
+        ] }] : []),
+        ...after,
+      ],
     },
   }],
 });
@@ -70,7 +106,7 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
       const sent = await Promise.race([postRetry(card([
         { type: 'TextBlock', text: `✅ Branch ${i.branch} successfully completed its executions`, weight: 'Bolder', wrap: true },
         { type: 'TextBlock', text: where, isSubtle: true, wrap: true, spacing: 'Small' },
-      ], url, i.evidenceUrl)), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
+      ], url, i.evidenceUrl, toolSummary(i.branchDir))), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
       console.log(sent ? '  Teams: success message sent' : '  Teams: success message could not be sent (the run continues)');
       return;
     }
@@ -85,7 +121,7 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
     // the test returns at once and the next branch starts. Its log: <branch folder>/errors/teams-notify.log
     const dir = i.imagePath ? path.dirname(i.imagePath) : process.cwd();
     const jobFile = path.join(dir, 'teams-job.json');
-    fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
+    fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl, toolSummary(i.branchDir)), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
     const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true, env: cleanEnv() });
     // wait (max 2 min) until the separate sender process has finished, so the message is out before the next branch starts.
     // The sender is its own process: if it crashes or hangs, the run just carries on after the wait.

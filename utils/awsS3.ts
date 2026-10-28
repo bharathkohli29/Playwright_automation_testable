@@ -87,7 +87,7 @@ export function describeAwsError(e: any): string {
   const msg = String(e?.message || '').trim();
   const bits = [`${name}${code && code !== name ? ` (${code})` : ''}`, status ? `HTTP ${status}` : '', msg].filter(Boolean).join(' — ');
   const hint = !msg || /ExpiredToken|UnknownError|^4(00|03)$/i.test(`${name} ${code} ${status}`)
-    ? ' — the temporary AWS keys most likely EXPIRED (they last about an hour): copy fresh QA-S3-Readonly keys into .env and run `npm run s3` (S3_RESULTS_DIR=<results folder>, S3_FORCE=1) to re-check this branch'
+    ? ' — the AWS keys may have EXPIRED (they last about a day) or the call was refused: copy fresh QA-S3-Readonly keys into .env and run `npm run s3` (S3_RESULTS_DIR=<results folder>, S3_FORCE=1) to re-check this branch'
     : '';
   return `S3 error: ${bits}${hint}`;
 }
