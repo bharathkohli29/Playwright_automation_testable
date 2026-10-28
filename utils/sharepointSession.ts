@@ -18,12 +18,14 @@ const q = (s: string) => encodeURIComponent(s.replace(/'/g, "''")).replace(/%2F/
 
 class Session {
   digest = ''; digestAt = 0;
-  constructor(public ctx: APIRequestContext, public site: string, public siteRel: string, public rel: string[]) {}
+  constructor(public ctx: APIRequestContext, public site: string, public siteRel: string, public rel: string[], public librarySeg = '') {}
   expired(): never { throw new Error('SharePoint: sign-in expired — run  npm run sp:login  again'); }
   async call(method: 'GET' | 'POST', url: string, data?: Buffer, tries = 4): Promise<{ status: number; text: string; json: () => any }> {
     for (let i = 1; ; i++) {
+      const t0 = Date.now();
       const res = await this.ctx.fetch(this.site + url, { method, maxRedirects: 0, data, timeout: 120_000, failOnStatusCode: false,
         headers: { Accept: 'application/json;odata=nometadata', ...(method === 'POST' ? { 'X-RequestDigest': await this.getDigest(), ...(data ? { 'Content-Type': 'application/octet-stream' } : {}) } : {}) } }).catch(() => null);
+      if (process.env.SP_DEBUG) console.log(`  [sp] ${method} ${decodeURIComponent(url).slice(0, 150)} → ${res ? res.status() : 'no response'} (${Date.now() - t0} ms)`);
       if (res && [301, 302, 303, 307, 308, 401].includes(res.status())) this.expired();
       if (res && res.status() === 403 && /login|sign.?in/i.test(await res.text().catch(() => ''))) this.expired();
       if (res && ![429, 500, 502, 503, 504].includes(res.status())) { const text = await res.text().catch(() => ''); return { status: res.status(), text, json: () => JSON.parse(text) }; }
@@ -40,9 +42,17 @@ class Session {
     this.digest = j.FormDigestValue; this.digestAt = Date.now(); return this.digest;
   }
   path(segs: string[]) { return `${this.siteRel}/${[...this.rel, ...segs].join('/')}`; }
-  async folderExists(segs: string[]) { const r = await this.call('GET', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(segs))}')?$select=Exists`); if (r.status === 404) return false; if (r.status >= 400) throw new Error(`SharePoint: check folder HTTP ${r.status} ${r.text.slice(0, 120)}`); return true; }
+  // SharePoint answers 200 {"Exists": false} for a missing folder (not always 404), so the body decides
+  async folderExists(segs: string[]) {
+    const r = await this.call('GET', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(segs))}')?$select=Exists`);
+    if (r.status === 404) return false;
+    if (r.status >= 400) throw new Error(`SharePoint: check folder HTTP ${r.status} ${r.text.slice(0, 120)}`);
+    let j: any = {}; try { j = r.json(); } catch { /* not json */ }
+    return j.Exists === true;
+  }
   async makeFolder(segs: string[]) { if (await this.folderExists(segs)) return; const r = await this.call('POST', `/_api/web/folders/addUsingPath(decodedurl='${q(this.path(segs))}')`); if (r.status >= 400) throw new Error(`SharePoint: create folder ${segs.at(-1)} HTTP ${r.status} ${r.text.slice(0, 120)}`); }
-  async putFile(folder: string[], name: string, file: string) { const r = await this.call('POST', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(folder))}')/files/addUsingPath(decodedurl='${q(name)}',Overwrite=true)`, fs.readFileSync(file)); if (r.status >= 400) throw new Error(`HTTP ${r.status} ${r.text.slice(0, 120)}`); }
+  // the folder is given relative to the site (no /sites/<site>/ prefix): deep s3-evidence paths otherwise exceed SharePoint's request-URL length limit
+  async putFile(folder: string[], name: string, file: string) { const r = await this.call('POST', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(folder).slice(this.siteRel.length - this.librarySeg.length))}')/files/addUsingPath(decodedurl='${q(name)}',Overwrite=true)`, fs.readFileSync(file)); if (r.status >= 400) throw new Error(`HTTP ${r.status} ${r.text.slice(0, 120)}`); }
 }
 
 async function open(): Promise<Session> {
@@ -50,7 +60,7 @@ async function open(): Promise<Session> {
   const t = parseSharePointUrl(process.env.SP_URL || DEFAULT_SP_URL);
   const site = (clean(process.env.SP_REST_BASE) || `https://${t.host}`) + t.sitePath; // SP_REST_BASE: test hook (local mock)
   const ctx = await pwRequest.newContext({ storageState: SESSION_FILE, ignoreHTTPSErrors: false });
-  return new Session(ctx, site, `${t.sitePath}/${t.library}`, t.folder);
+  return new Session(ctx, site, `${t.sitePath}/${t.library}`, t.folder, t.library);
 }
 
 /** One-time sign-in: opens a browser, waits until you are in SharePoint, saves the session, then proves the folder is reachable. */

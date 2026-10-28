@@ -96,8 +96,9 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return e;
 }
 
-export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
-  if (!teamsEnabled()) return;
+/** Returns true when the message went out (or Teams is switched off), false when it could not be sent. */
+export async function notifyTeams(page: Page, i: TeamsInfo): Promise<boolean> {
+  if (!teamsEnabled()) return true;
   try {
     const env = (process.env.TEST_ENV || 'qa').toUpperCase();
     const where = `${i.repo ? `${i.repo} · ` : ''}${env}${i.minutes !== undefined ? ` · ${i.minutes} min` : ''}`;
@@ -108,7 +109,7 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
         { type: 'TextBlock', text: where, isSubtle: true, wrap: true, spacing: 'Small' },
       ], url, i.evidenceUrl, toolSummary(i.branchDir))), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
       console.log(sent ? '  Teams: success message sent' : '  Teams: success message could not be sent (the run continues)');
-      return;
+      return sent;
     }
     const reason = (i.note || 'no reason captured').replace(/\s+/g, ' ').trim().slice(0, 600);
     const label = i.status === 'blocked' ? 'blocked by the site' : i.status === 'environment' ? 'environment problem' : 'failed';
@@ -131,7 +132,9 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<void> {
     child.unref();
     let log = ''; try { log = fs.readFileSync(path.join(dir, 'teams-notify.log'), 'utf8').trim().split('\n').pop() || ''; } catch { /* ignore */ }
     console.log(`  Teams: ${log || 'sender finished'}`);
+    return true;
   } catch (e) {
     console.log(`  Teams: not sent (${e instanceof Error ? e.message : e}) — the run is not affected`);
+    return false;
   }
 }

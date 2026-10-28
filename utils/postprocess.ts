@@ -7,7 +7,7 @@ import { describeAwsError } from './awsS3';
 import { uploadBranchToSharePoint, sharepointBranchUrl, sharepointDir } from './sharepoint';
 import { graphConfigured, uploadBranchGraph } from './sharepointGraph';
 import { sessionSaved, uploadBranchSession } from './sharepointSession';
-import { notifyTeams } from './teams';
+import { notifyTeams, teamsEnabled } from './teams';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -48,10 +48,19 @@ export async function shareBranch(branchDir: string): Promise<{ skipped: boolean
 export async function runPostProcess(job: PostJob): Promise<boolean> {
   const st: PostState = { state: 'running', steps: { s3: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
+  // a short network / DNS outage must not lose the whole branch: network-type failures are retried after 30 s, 90 s and 3 min
+  const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
   const step = async (name: string, fn: () => Promise<string | void>) => {
     st.steps[name] = 'running'; save();
-    try { const d = await fn(); st.steps[name] = d === 'skipped' ? 'skipped' : 'done'; if (d && d !== 'skipped') st.detail[name] = d; }
-    catch (e) { st.steps[name] = 'failed'; st.detail[name] = (e instanceof Error && e.message ? e.message : describeAwsError(e)).slice(0, 400); console.log(`  ${job.branch}: ${name} failed (${st.detail[name]}) — the other steps continue`); }
+    for (let attempt = 0; ; attempt++) {
+      try { const d = await fn(); st.steps[name] = d === 'skipped' ? 'skipped' : 'done'; if (d && d !== 'skipped') st.detail[name] = d; else delete st.detail[name]; break; }
+      catch (e) {
+        const msg = (e instanceof Error && e.message ? e.message : describeAwsError(e)).slice(0, 400);
+        const wait = [30_000, 90_000, 180_000][attempt];
+        if (wait && NETWORK.test(msg)) { st.detail[name] = `retry ${attempt + 1}/3 after: ${msg}`; save(); console.log(`  ${job.branch}: ${name} hit a network problem (${msg.slice(0, 120)}) — trying again in ${wait / 1000} s`); await new Promise((r) => setTimeout(r, wait)); continue; }
+        st.steps[name] = 'failed'; st.detail[name] = msg; console.log(`  ${job.branch}: ${name} failed (${msg}) — the other steps continue`); break;
+      }
+    }
     save();
   };
   console.log(`\n=== Post-processing ${job.branch} ===`);
@@ -67,11 +76,13 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   let evidenceUrl: string | undefined;
   await step('sharepoint', async () => { const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
   await step('teams', async () => {
+    if (!teamsEnabled()) return 'skipped';
     // notifyTeams does not use the page; a passed branch never needs a screenshot
-    await notifyTeams(undefined as unknown as Page, {
+    const sent = await notifyTeams(undefined as unknown as Page, {
       branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
       minutes: job.minutes, branchDir: job.branchDir, evidenceUrl,
     });
+    if (!sent) throw new Error('Teams message could not be sent (network)');
   });
 
   const failed = Object.values(st.steps).includes('failed');
