@@ -9,6 +9,14 @@ const dir = path.resolve(process.argv[2] || '');
 const pidFile = path.join(dir, 'worker.pid');
 const IDLE_MAX_MS = 3 * 60 * 60_000;
 
+// every line of a job carries the branch name, so the live output stays readable while another branch is executing next to it
+let currentBranch = '';
+const say = console.log.bind(console);
+console.log = (...a: unknown[]) => {
+  const text = a.map(String).join(' ');
+  say(currentBranch && !text.includes(currentBranch) ? text.split('\n').map((l) => (l.trim() ? `[${currentBranch}] ${l}` : l)).join('\n') : text);
+};
+
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return !!e && (e as NodeJS.ErrnoException).code === 'EPERM'; } };
 // worker.pid is written by the starter (the tsx launcher = this process's parent); anything else that is alive is another worker
 const other = (() => { try { const p = Number(fs.readFileSync(pidFile, 'utf8')); return !!p && p !== process.pid && p !== process.ppid && alive(p); } catch { return false; } })();
@@ -27,7 +35,9 @@ async function main() {
       fs.renameSync(path.join(dir, next), running);
       try {
         const job: PostJob = JSON.parse(fs.readFileSync(running, 'utf8'));
+        currentBranch = job.branch;
         await runPostProcess(job);
+        currentBranch = '';
         fs.renameSync(running, path.join(dir, next.replace(/\.job\.json$/, '.done.json')));
       } catch (e) {
         console.log(`post-processing job ${next} crashed: ${e instanceof Error ? e.message : e}`);

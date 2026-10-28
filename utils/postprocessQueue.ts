@@ -56,6 +56,7 @@ export function enqueuePostProcess(job: PostJob): boolean {
     writePostState(job.branchDir, { state: 'queued', steps: { s3: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: new Date().toISOString() });
     if (!ensureWorker()) { fs.rmSync(path.join(dir, name), { force: true }); return false; }
     console.log(`  ${job.branch}: handed to the background worker — the next branch starts now`);
+    startLiveTail();
     return true;
   } catch (e) {
     console.log(`  post-processing hand-off failed (${e instanceof Error ? e.message : e}) — working inline instead`);
@@ -63,7 +64,12 @@ export function enqueuePostProcess(job: PostJob): boolean {
   }
 }
 
-let logPos = 0;
+// start after what is already in the log: a restarted test process must not print the earlier branches' lines again
+let logPos = (() => { try { return fs.statSync(logFile()).size; } catch { return 0; } })();
+let tail: NodeJS.Timeout | null = null;
+/** While a branch is being worked on, its worker lines are copied into the test output every 3 s (not only when a test ends). */
+function startLiveTail(): void { if (tail) return; tail = setInterval(echoWorkerLog, 3000); tail.unref(); }
+function stopLiveTail(): void { if (tail) clearInterval(tail); tail = null; }
 /** Prints what the worker has logged since the last call, so its lines show in this terminal and on the queue's /output page. */
 export function echoWorkerLog(): void {
   try {
@@ -89,5 +95,6 @@ export async function drainPostProcess(minutes = 60): Promise<void> {
     if (!workerAlive(dir) && !fs.existsSync(path.join(dir, 'worker.done'))) { ensureWorker(); }
   }
   echoWorkerLog();
+  stopLiveTail();
   console.log(fs.existsSync(path.join(dir, 'worker.done')) ? '  post-processing finished' : `  post-processing still running after ${minutes} min — it continues in the background (log: ${logFile()})`);
 }
