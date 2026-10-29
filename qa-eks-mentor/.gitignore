@@ -1,0 +1,9 @@
+# generated analysis reports
+reports/
+
+# model weights are too large for git: share them outside the repo
+*.gguf
+
+# python
+__pycache__/
+.venv/

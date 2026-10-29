@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium } from '@playwright/test';
 import type { PyDefect } from './pyValidate';
+import { getEksAiDiagnosis, type EksAiDiagnosis } from './eksMentor';
 
 /**
  * Bug reports for the PLATFORM defects found by the Python tool validation (pyValidate.ts → s3-check.json "python.defects").
@@ -98,7 +99,26 @@ const KIND: Record<PyDefect['tag'], { title: (v: string, t: string, d: PyDefect)
 
 interface Ctx { pm?: string; layout?: string; version: string; branch: string; repo: string; runId: string; short: string; commit: string; s3Path: string; gateHtml: string }
 
-function pdfHtml(c: Ctx, d: PyDefect, proof: Proof, shot: string | null): string {
+/** The QA EKS Mentor's diagnosis as label/value rows (empty when there is none, so the report stays exactly as before). One line each, cut at 700 characters. */
+function aiRows(ai?: EksAiDiagnosis | null): Array<[string, string]> {
+  // Only a diagnosis built from real QA EKS log lines (a ready analyze.py report) is printed. A direct model answer carries no log lines and can invent evidence, so it is left out.
+  if (!ai || ai.source !== 'report') return [];
+  const one = (s?: string) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  const rows: Array<[string, string]> = [['Verdict', one(ai.verdict)], ['Summary', one(ai.summary)], ['Root cause', one(ai.rootCause)], ['Evidence (QA EKS log line)', one(ai.evidence)], ['Owner', one(ai.owner)], ['Suggested fix', one(ai.suggestedFix)]];
+  return rows.filter(([, v]) => v);
+}
+const AI_NOTE = 'Written by the local QA EKS Mentor model from the QA EKS logs. A draft: check it against the logs before filing.';
+const aiHtml = (ai?: EksAiDiagnosis | null) => {
+  const rows = aiRows(ai); if (!rows.length) return '';
+  return `<h3>AI root-cause diagnosis (QA EKS Mentor)</h3>\n<table>\n${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('\n')}\n</table>\n<div class="draft">${esc(AI_NOTE)}</div>\n`;
+};
+const aiJira = (ai?: EksAiDiagnosis | null) => {
+  const rows = aiRows(ai); if (!rows.length) return '';
+  const jx = (s: string) => s.replace(/[|{}]/g, ' '); // keep the Jira wiki markup intact
+  return `\n{panel:title=AI diagnosis (QA EKS Mentor) - draft, verify against the logs}\n${rows.map(([k, v]) => `*${k}:* ${jx(v)}`).join('\n')}\n{panel}`;
+};
+
+function pdfHtml(c: Ctx, d: PyDefect, proof: Proof, shot: string | null, ai?: EksAiDiagnosis | null): string {
   const k = KIND[d.tag]; const tool = d.tool;
   const repoUrl = c.repo.includes('/') ? `https://github.com/${c.repo}` : '';
   const branchUrl = repoUrl ? `${repoUrl}/tree/${encodeURIComponent(c.branch)}` : '';
@@ -155,7 +175,7 @@ ${proof.snippet.length ? `<pre>${esc(proof.snippet.join('\n'))}</pre>` : ''}
 <h3>Root cause (plain English)</h3>
 <p>${esc(k.why(c.version, tool, d))}${proof.found ? ' The tool\'s trigger file is committed on the tested branch, so the repository is ready.' : ''}</p>
 <p><b>Layer:</b> ${esc(k.layer)} — files to check: ${k.files.map((f) => `<code>${esc(f.replace('<tool>', tool.replace(/-/g, '_')).replace('/python/', `/${LANG.dir}/`))}</code>`).join(', ')}.<br><span style="color:#6b7280">The exact line is for the platform team to confirm; this report is built from the run evidence only.</span></p>
-<h3>Platform team fix</h3><p>${esc(k.fix(c.version, tool))}</p>
+${aiHtml(ai)}<h3>Platform team fix</h3><p>${esc(k.fix(c.version, tool))}</p>
 <h3>QA retest acceptance criteria</h3>
 <ul>
 <li>Re-run branch <b>${esc(c.branch)}</b> (${esc(LANG.lb(c.version))}) on the fixed platform build.</li>
@@ -166,7 +186,7 @@ ${proof.snippet.length ? `<pre>${esc(proof.snippet.join('\n'))}</pre>` : ''}
 </div></body></html>`;
 }
 
-function jiraMd(c: Ctx, d: PyDefect, proof: Proof, pdfName: string, shotName: string): string {
+function jiraMd(c: Ctx, d: PyDefect, proof: Proof, pdfName: string, shotName: string, ai?: EksAiDiagnosis | null): string {
   const k = KIND[d.tag]; const tool = d.tool;
   const files = k.files.map((f) => f.replace('<tool>', tool.replace(/-/g, '_')).replace('/python/', `/${LANG.dir}/`));
   const bUrl = c.repo.includes('/') ? `https://github.com/${c.repo}/tree/${encodeURIComponent(c.branch)}` : '';
@@ -191,7 +211,7 @@ h1. 3. Expected vs. actual
 h1. 4. Root cause analysis
 Layer: *${k.layer}*. Files to check: ${files.map((f) => `{{${f}}}`).join(', ')}.
 ${k.why(c.version, tool, d)}
-_The exact lines must be confirmed by the platform team._
+_The exact lines must be confirmed by the platform team._${aiJira(ai)}
 
 h1. 5. Sequence of the failure
 {{Repo profiling}} → {{Planning gate (compatibility.py)}} → {{Worker execution}} → {{${d.tag}}}
@@ -248,11 +268,18 @@ export async function writeBugReports(bd: string, repoArg?: string): Promise<str
         const proof = await repoProof(repo, c.branch, tool, token, dirs);
         const pdfName = `Defect_Report_${base}_${LANG.short}${c.version.replace(/\./g, '').replace(/^\.?NET\s*/i, '').replace(/\s+/g, '')}_${c.short}.pdf`;
         const p2 = await ctx.newPage();
-        await p2.setContent(pdfHtml(c, d, proof, shot), { waitUntil: 'load' });
+        const ai = await getEksAiDiagnosis(tool, c.runId, {
+          branch: c.branch,
+          version: c.version,
+          repo,
+          observed: d.observed,
+          note: d.note,
+        }).catch(() => null);
+        await p2.setContent(pdfHtml(c, d, proof, shot, ai), { waitUntil: 'load' });
         await p2.pdf({ path: path.join(outDir, pdfName), format: 'A4', printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">Whitebox defect report · ${esc(tool)} · ${esc(LANG.lb(c.version))} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` });
         await p2.close();
         const jiraName = `JIRA_${base}_${c.short}.jira.md`;
-        fs.writeFileSync(path.join(outDir, jiraName), jiraMd(c, d, proof, pdfName, shotName));
+        fs.writeFileSync(path.join(outDir, jiraName), jiraMd(c, d, proof, pdfName, shotName, ai));
         made.push(pdfName);
         index.push({ tool, classification: d.tag, observed: d.observed, summary: `[Whitebox][${LANG.lb(c.version)}][${tool}] ${KIND[d.tag].title(c.version, tool, d)}`, pdf: pdfName, jira: jiraName, screenshot: shot ? shotName : null, repoProof: proof.found, status: 'draft (not filed in Jira)' });
       } catch (e) { console.log(`  Bug report for ${tool} failed: ${e instanceof Error ? e.message : e}`); }
