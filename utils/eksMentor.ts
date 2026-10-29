@@ -15,15 +15,25 @@ export interface EksAiDiagnosis {
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const MODEL_NAME = process.env.OLLAMA_QA_MODEL || 'qa-eks-mentor-trained:latest';
-const MENTOR_DIR = process.env.EKS_MENTOR_DIR || 'F:\\Ollama\\mentor'; // folder whose reports\ holds the ready analyze.py reports (<tool>-<first 8 chars of the run id>.md)
+// folders whose reports\ holds the ready analyze.py reports (<tool>-<first 8 chars of the run id>.md): EKS_MENTOR_DIR, the project's own qa-eks-mentor\ (where analyze.py writes), and the old F:\Ollama\mentor
+const MENTOR_DIRS = [process.env.EKS_MENTOR_DIR, path.join(__dirname, '..', 'qa-eks-mentor'), 'F:\\Ollama\\mentor'].filter((d): d is string => !!d);
+
+function reportPaths(tool: string, runId: string): string[] {
+  const short = runId.split('-')[0];
+  return MENTOR_DIRS.map((d) => path.join(d, 'reports', `${tool}-${short}.md`));
+}
+
+/** True when a ready report for this tool and run exists (so analyze.py does not have to run again). */
+export function eksReportExists(tool: string, runId: string): boolean {
+  return reportPaths(tool, runId).some((p) => fs.existsSync(p));
+}
 
 /**
  * Checks if a pre-existing mentor report markdown file exists on disk.
  */
 function readLocalReport(tool: string, runId: string): string | null {
-  const short = runId.split('-')[0];
-  const reportPath = path.join(MENTOR_DIR, 'reports', `${tool}-${short}.md`);
-  if (fs.existsSync(reportPath)) {
+  for (const reportPath of reportPaths(tool, runId)) {
+    if (!fs.existsSync(reportPath)) continue;
     try {
       return fs.readFileSync(reportPath, 'utf8');
     } catch {
