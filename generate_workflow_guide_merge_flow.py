@@ -916,7 +916,7 @@ def create_merge_flow_guide():
 
     env_data = [
         [Paragraph("<b>Variable</b>", body_bold), Paragraph("<b>Required?</b>", body_bold), Paragraph("<b>Meaning & Valid Values</b>", body_bold), Paragraph("<b>Default</b>", body_bold)],
-        [Paragraph("<code>TEST_ENV</code>", code_text), Paragraph("Yes", body), Paragraph("Platform environment to target: qa (qa-frontend.testable.cc) or dev.", body), Paragraph("qa", code_text)],
+        [Paragraph("<code>TEST_ENV</code>", code_text), Paragraph("Yes", body), Paragraph("Platform environment to target: qa (qa-app.testable.cloud) or dev.", body), Paragraph("qa", code_text)],
         [Paragraph("<code>TESTABLE_EMAIL</code>", code_text), Paragraph("Yes", body), Paragraph("Login email address for the Testable platform account.", body), Paragraph("-", body)],
         [Paragraph("<code>TESTABLE_PASSWORD</code>", code_text), Paragraph("Yes", body), Paragraph("Password for the primary Testable platform account.", body), Paragraph("-", body)],
         [Paragraph("<code>TESTABLE_EMAIL_DEV</code>", code_text), Paragraph("For dev", body), Paragraph("Login email for dev environment (used when TEST_ENV=dev).", body), Paragraph("-", body)],

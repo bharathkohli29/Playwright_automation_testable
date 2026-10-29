@@ -3,8 +3,8 @@ dotenv.config({ override: true }); // override: a long-lived VS Code test proces
 
 /**
  * Which Testable environment this run uses:  TEST_ENV=qa (default)  or  TEST_ENV=dev   (set it in .env or in the terminal).
- *   qa  → https://qa-frontend.testable.cc   · S3 bucket qa-bucket-us2   · TESTABLE_EMAIL / TESTABLE_PASSWORD
- *   dev → https://dev-frontend.testable.cc  · S3 bucket dev-bucket-us2  · TESTABLE_EMAIL_DEV / TESTABLE_PASSWORD_DEV
+ *   qa  → https://qa-app.testable.cloud   · S3 bucket qa-bucket-us2   · TESTABLE_EMAIL / TESTABLE_PASSWORD
+ *   dev → https://dev-app.testable.cloud  · S3 bucket dev-bucket-us2  · TESTABLE_EMAIL_DEV / TESTABLE_PASSWORD_DEV
  * BASE_URL and S3_BUCKET can still override a single value. Everything else (flow, S3 logic, reports) is identical.
  */
 export type TestEnv = 'qa' | 'dev';
@@ -12,7 +12,7 @@ const raw = (process.env.TEST_ENV || 'qa').trim().toLowerCase();
 if (raw !== 'qa' && raw !== 'dev') throw new Error(`TEST_ENV must be "qa" or "dev" (got "${process.env.TEST_ENV}")`);
 export const TEST_ENV: TestEnv = raw;
 
-export const baseUrl = process.env.BASE_URL || `https://${TEST_ENV}-frontend.testable.cc`;
+export const baseUrl = process.env.BASE_URL || `https://${TEST_ENV}-app.testable.cloud`;
 export const s3Bucket = process.env.S3_BUCKET || `${TEST_ENV}-bucket-us2`;
 export const awsRegion = process.env.AWS_REGION || 'us-east-2';
 /**
