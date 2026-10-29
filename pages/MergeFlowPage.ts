@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 /**
@@ -127,6 +127,24 @@ export class MergeFlowPage {
     console.log(`  start-of-analysis: ${which === 'new' ? 'clicked New analysis' : which === 'refresh' ? 'clicked Refresh repos' : 'neither button found — using Change repository / branch'}`);
   }
 
+  /** Waits for a coverage-preview section, but stops at once (BLOCKED by the site) when the page says "Analysis is blocked on …" instead of waiting the full time. */
+  async waitSectionOrBlocked(section: Locator, what: string, ms: number) {
+    const blockedBox = this.page.getByText(/Analysis is blocked on/i).last();
+    const end = Date.now() + ms; let since = 0;
+    while (Date.now() < end) {
+      if (await section.isVisible().catch(() => false)) return;
+      await this.failIfSiteError(what);
+      if (await blockedBox.isVisible().catch(() => false)) {
+        since ||= Date.now();
+        if (Date.now() - since > 10_000) {
+          const why = (await blockedBox.locator('xpath=..').innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 300);
+          throw new Error(`BLOCKED by the site (${what}): ${why || 'Analysis is blocked'}`);
+        }
+      } else since = 0;
+      await this.page.waitForTimeout(1_000);
+    }
+  }
+
   /**
    * Plan steps 10–12 (selectors NOT verified live yet): open each coverage-preview section and screenshot it.
    * Throws BLOCKED if the preview never appears (e.g. assessment stuck on "Checking…").
@@ -164,7 +182,8 @@ export class MergeFlowPage {
     }
     for (const [file, re] of accordions) {
       const head = this.page.getByText(re).last();
-      await expect(head, `BLOCKED: coverage preview section ${re} did not appear`).toBeVisible({ timeout: 5 * 60_000 });
+      await this.waitSectionOrBlocked(head, `coverage preview section ${re}`, 60_000); // 1 minute (was 5); a blocked branch stops after ~10 s anyway
+      await expect(head, `BLOCKED: coverage preview section ${re} did not appear`).toBeVisible({ timeout: 5_000 });
       await head.scrollIntoViewIfNeeded();
       await head.click();
       await this.page.waitForTimeout(1_000);
