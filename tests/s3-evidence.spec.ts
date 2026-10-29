@@ -7,7 +7,7 @@ import { loadBuilds } from '../utils/builds';
 
 /**
  * For every branch folder of a results run that has run-details.json:
- *   qa-bucket-us2 / development / cell-001 / tenant / project / repository / branch_id / branch_name / commit_sha / run_id / <tool> / … / *.json
+  *   testable-qa-artifacts-759498976252 / development / cell-001 / tenant / project / repository / branch_id / branch_name / commit_sha / run_id / <tool> / … / *.json
  * Languages come from the coverage preview (repo-details.json → "Language": C#, JavaScript, TypeScript).
  * For each language and technique the primary tool's folder is opened and its json files are read:
  *   PASS  = triggered, has data      EMPTY = triggered but empty ({} / 0)      FAIL = not triggered (no folder / no json)

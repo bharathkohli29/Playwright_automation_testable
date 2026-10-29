@@ -3,7 +3,7 @@ dotenv.config({ override: true }); // override: a long-lived VS Code test proces
 
 /**
  * Which Testable environment this run uses:  TEST_ENV=qa (default)  or  TEST_ENV=dev   (set it in .env or in the terminal).
- *   qa  → https://qa-app.testable.cloud   · S3 bucket qa-bucket-us2   · TESTABLE_EMAIL / TESTABLE_PASSWORD
+ *   qa  → https://qa-app.testable.cloud   · S3 bucket testable-qa-artifacts-759498976252   · TESTABLE_EMAIL / TESTABLE_PASSWORD
  *   dev → https://dev-app.testable.cloud  · S3 bucket dev-bucket-us2  · TESTABLE_EMAIL_DEV / TESTABLE_PASSWORD_DEV
  * BASE_URL and S3_BUCKET can still override a single value. Everything else (flow, S3 logic, reports) is identical.
  */
@@ -13,7 +13,7 @@ if (raw !== 'qa' && raw !== 'dev') throw new Error(`TEST_ENV must be "qa" or "de
 export const TEST_ENV: TestEnv = raw;
 
 export const baseUrl = process.env.BASE_URL || `https://${TEST_ENV}-app.testable.cloud`;
-export const s3Bucket = process.env.S3_BUCKET || `${TEST_ENV}-bucket-us2`;
+export const s3Bucket = process.env.S3_BUCKET || (TEST_ENV === 'qa' ? 'testable-qa-artifacts-759498976252' : `${TEST_ENV}-bucket-us2`);
 export const awsRegion = process.env.AWS_REGION || 'us-east-2';
 /**
  * Second Testable account on the same PC:  ACCOUNT=2  (set it in the terminal, NOT in .env) uses TESTABLE_EMAIL_2 / TESTABLE_PASSWORD_2

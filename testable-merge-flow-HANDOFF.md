@@ -3,7 +3,7 @@
 Project: Playwright TypeScript project `testable-merge-flow` at `C:\Users\Work\Downloads\testable-merge-flow`. Project 1 (`testable-e2e`) is ON HOLD.
 
 ## What it does
-Automates the whitebox flow on Testable (QA https://qa-app.testable.cloud default; DEV with `TEST_ENV=dev`): reads UI gate values, downloads the taxonomy report, saves the run record, checks tool evidence in S3 (qa-bucket-us2 / dev-bucket-us2, us-east-2) and merges it into `*-with-ui-values.html`.
+Automates the whitebox flow on Testable (QA https://qa-app.testable.cloud default; DEV with `TEST_ENV=dev`): reads UI gate values, downloads the taxonomy report, saves the run record, checks tool evidence in S3 (testable-qa-artifacts-759498976252 for QA / dev-bucket-us2 for DEV, us-east-2) and merges it into `*-with-ui-values.html`.
 Run: `npm test` (VS Code Terminal), `npm run s3` (re-check: `$env:S3_RESULTS_DIR="results\<folder>"; $env:S3_FORCE=1`).
 Inputs: `builds.json` ({"repo":..., "branches":[...]} or full GitHub /tree/ links). Env: LANGUAGE, REPO, BRANCHES, S3_BUCKET, TEST_ENV, BASE_URL, BUILDS_FILE, RUN_TIMEOUT_MIN, GATE_SHOTS=off.
 
