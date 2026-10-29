@@ -3,7 +3,7 @@ import * as path from 'path';
 import { chromium } from '@playwright/test';
 import type { PyDefect } from './pyValidate';
 import { getEksAiDiagnosis, type EksAiDiagnosis } from './eksMentor';
-import { ensureEksReports } from './eksAnalyze';
+import { ensureEksReports, copyEksReports } from './eksAnalyze';
 
 /**
  * Bug reports for the PLATFORM defects found by the Python tool validation (pyValidate.ts → s3-check.json "python.defects").
@@ -252,6 +252,7 @@ export async function writeBugReports(bd: string, repoArg?: string): Promise<str
   const made: string[] = []; const index: any[] = [];
   // QA EKS Mentor: when EKS_AUTO is on (or the team's EKS key is in .env) analyze.py is run here for the defective tools, so the ready reports exist before the drafts are written. Never stops the run.
   await ensureEksReports(defects.map((x) => x.tool), { runId: c.runId, branch: c.branch, repo, version: LANG.lb(c.version), outDir, notes: Object.fromEntries(defects.map((x) => [x.tool, `${x.observed}: ${x.note}`])) });
+  copyEksReports(defects.map((x) => x.tool), c.runId, bd); // analysis reports (made now or by hand) go into the branch folder, so SharePoint gets them
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 1500, height: 900 } });

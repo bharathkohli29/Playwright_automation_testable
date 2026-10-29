@@ -23,6 +23,14 @@ function reportPaths(tool: string, runId: string): string[] {
   return MENTOR_DIRS.map((d) => path.join(d, 'reports', `${tool}-${short}.md`));
 }
 
+/** The analysis files analyze.py wrote for this tool and run (the Markdown report and the Analysis_Report PDF), wherever they are. */
+export function eksReportFiles(tool: string, runId: string): string[] {
+  const short = runId.split('-')[0];
+  const out: string[] = [];
+  for (const d of MENTOR_DIRS) for (const n of [`${tool}-${short}.md`, `Analysis_Report_${tool}-${short}.pdf`]) { const p = path.join(d, 'reports', n); if (fs.existsSync(p) && !out.some((x) => path.basename(x) === n)) out.push(p); }
+  return out;
+}
+
 /** True when a ready report for this tool and run exists (so analyze.py does not have to run again). */
 export function eksReportExists(tool: string, runId: string): boolean {
   return reportPaths(tool, runId).some((p) => fs.existsSync(p));

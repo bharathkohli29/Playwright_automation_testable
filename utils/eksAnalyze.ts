@@ -1,7 +1,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile, spawn } from 'child_process';
-import { eksReportExists } from './eksMentor';
+import { eksReportExists, eksReportFiles } from './eksMentor';
+
+/**
+ * Copies the QA EKS analysis reports (Analysis_Report_<tool>-<run>.pdf and <tool>-<run>.md) of the defective tools into the branch folder
+ * (<branch folder>/qa-eks-analysis/), so the SharePoint upload of the branch folder takes them along. Works for reports made by the automatic
+ * run and for reports made by hand. Never throws; returns the number of files copied.
+ */
+export function copyEksReports(tools: string[], runId: string, branchDir: string): number {
+  let n = 0;
+  try {
+    const dest = path.join(branchDir, 'qa-eks-analysis');
+    for (const t of [...new Set(tools)]) for (const f of eksReportFiles(t, runId)) {
+      fs.mkdirSync(dest, { recursive: true }); fs.copyFileSync(f, path.join(dest, path.basename(f))); n++;
+    }
+    if (n) console.log(`  QA EKS analysis: ${n} report file(s) copied to ${path.join(path.basename(branchDir), 'qa-eks-analysis')} (uploaded to SharePoint with the branch folder)`);
+  } catch (e) { console.log(`  QA EKS analysis: reports could not be copied (${e instanceof Error ? e.message : e})`); }
+  return n;
+}
 
 /**
  * Runs the QA EKS Mentor's analyze.py by itself for the platform defects of a branch, so nobody has to sign in and start it by hand.
