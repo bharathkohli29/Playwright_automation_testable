@@ -15,7 +15,15 @@ export const TEST_ENV: TestEnv = raw;
 export const baseUrl = process.env.BASE_URL || `https://${TEST_ENV}-frontend.testable.cc`;
 export const s3Bucket = process.env.S3_BUCKET || `${TEST_ENV}-bucket-us2`;
 export const awsRegion = process.env.AWS_REGION || 'us-east-2';
-export const loginEmail = TEST_ENV === 'dev' ? process.env.TESTABLE_EMAIL_DEV : process.env.TESTABLE_EMAIL;
-export const loginPassword = TEST_ENV === 'dev' ? process.env.TESTABLE_PASSWORD_DEV : process.env.TESTABLE_PASSWORD;
-/** each environment keeps its own saved login, so switching never reuses the other site's session */
-export const authFile = TEST_ENV === 'dev' ? '.auth/user-dev.json' : '.auth/user.json';
+/**
+ * Second Testable account on the same PC:  ACCOUNT=2  (set it in the terminal, NOT in .env) uses TESTABLE_EMAIL_2 / TESTABLE_PASSWORD_2
+ * (DEV: TESTABLE_EMAIL_DEV_2 / TESTABLE_PASSWORD_DEV_2), its own saved session and its own results folder, so two terminals can run side by side.
+ * Not set = the normal single account, exactly as before.
+ */
+export const ACCOUNT = (process.env.ACCOUNT || '').trim().replace(/[^\w-]/g, '');
+const sfx = ACCOUNT ? `_${ACCOUNT}` : '';
+export const loginEmail = TEST_ENV === 'dev' ? process.env[`TESTABLE_EMAIL_DEV${sfx}`] : process.env[`TESTABLE_EMAIL${sfx}`];
+export const loginPassword = TEST_ENV === 'dev' ? process.env[`TESTABLE_PASSWORD_DEV${sfx}`] : process.env[`TESTABLE_PASSWORD${sfx}`];
+if (ACCOUNT && (!loginEmail || !loginPassword)) throw new Error(`ACCOUNT=${ACCOUNT}: add ${TEST_ENV === 'dev' ? `TESTABLE_EMAIL_DEV_${ACCOUNT} and TESTABLE_PASSWORD_DEV_${ACCOUNT}` : `TESTABLE_EMAIL_${ACCOUNT} and TESTABLE_PASSWORD_${ACCOUNT}`} to .env`);
+/** each environment (and each account) keeps its own saved login, so switching never reuses another session */
+export const authFile = `.auth/user${TEST_ENV === 'dev' ? '-dev' : ''}${ACCOUNT ? `-${ACCOUNT}` : ''}.json`;

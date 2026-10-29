@@ -78,6 +78,41 @@ Copy `.env.example` to `.env`. Values in `.env` always win over terminal variabl
 
 The complete list (timeouts, language override, validator ignore lists, queue settings) is in the PDF guide and in `.env.example`.
 
+## Two Testable accounts on one PC
+
+To use a second platform account at the same time, add `TESTABLE_EMAIL_2` and `TESTABLE_PASSWORD_2` to `.env` (DEV site: `TESTABLE_EMAIL_DEV_2` / `TESTABLE_PASSWORD_DEV_2`). Then run each account in its own terminal:
+
+```powershell
+# terminal 1: the normal account
+$env:BRANCHES="link1,link2"
+npm test
+```
+
+```powershell
+# terminal 2: the second account (set ACCOUNT in the terminal, not in .env)
+$env:ACCOUNT="2"
+$env:BRANCHES="link3,link4"
+npm test
+```
+
+Account 2 gets its own saved session (`.auth/user-2.json`), results folder (`results/merge-flow_<date>_<time>_acct2`) and Playwright report/output folders, so the two runs never overwrite each other. Give the two terminals different branches. Without `ACCOUNT` nothing changes. Use terminals for this, not the Test Explorer.
+
+### One command for both accounts (`npm run parallel`)
+
+Put all branches in `builds.json` (or `BRANCHES`) and run:
+
+```powershell
+npm run parallel
+```
+
+Every account in `.env` (`TESTABLE_EMAIL`, `TESTABLE_EMAIL_2`, ...) becomes a **lane**. Each lane takes the next waiting branch, and when it finishes it takes the next one, so the branch list moves to whichever account is free. Lane 2 starts 20 seconds after lane 1 (`PARALLEL_STAGGER_SEC` changes it). Each lane keeps its own results folder (`..._acct1`, `..._acct2`), and its background worker keeps working on a finished branch while the lane already runs the next one.
+
+- If an account cannot start two branches in a row (for example a wrong password), that lane stops and the other lane continues with the rest. A branch that did not start on one account is tried on the other.
+- `LANES=1` (terminal) uses only the first account. Do not set `ACCOUNT` yourself with this command.
+- The summary at the end lists every branch with its account, status and minutes; it is also saved as `results/parallel_<date>_<time>_summary.json`.
+- Output lines are prefixed `[acct1]` / `[acct2]`; the background workers' lines are `[acct1 post]` / `[acct2 post]`.
+- Run it from a terminal, not the Test Explorer. `npm test` and the single-account flow are unchanged.
+
 ## Output
 
 Each run writes to `results/merge-flow_<date>_<time>/`, one folder per branch:

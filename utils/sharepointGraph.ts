@@ -127,7 +127,8 @@ export async function chooseFolderName(tag: string, day: string, branchFolder: s
   if (map[key]) return map[key];
   let name = base; let n = 1;
   while (await taken(name)) { n++; name = `${base}_RUN${n}`; if (n > 50) throw new Error(`SharePoint: more than 50 runs of ${base} in one day folder — check the folder`); }
-  try { map[key] = name; fs.writeFileSync(mapFile, JSON.stringify(map, null, 1)); } catch { /* ignore */ }
+  // read the file again just before writing: another lane's worker (two accounts) may have added an entry while we were checking SharePoint
+  try { let cur: Record<string, string> = {}; try { cur = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* none yet */ } cur[key] = name; fs.writeFileSync(mapFile, JSON.stringify(cur, null, 1)); } catch { /* ignore */ }
   return name;
 }
 const targetName = (r: Resolved, day: string, branchFolder: string) => chooseFolderName('graph', day, branchFolder, (n) => exists(r, [day, n]));

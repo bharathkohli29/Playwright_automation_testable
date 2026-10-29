@@ -8,7 +8,9 @@
 node_modules/
 results/
 test-results/
+test-results-acct*/
 playwright-report/
+playwright-report-acct*/
 blob-report/
 
 # local notes / transcripts
@@ -22,3 +24,7 @@ Thumbs.db
 teams-job.json
 
 queue-server/data/
+
+# Python caches
+__pycache__/
+*.pyc

@@ -72,6 +72,7 @@ function startLiveTail(): void { if (tail) return; tail = setInterval(echoWorker
 function stopLiveTail(): void { if (tail) clearInterval(tail); tail = null; }
 /** Prints what the worker has logged since the last call, so its lines show in this terminal and on the queue's /output page. */
 export function echoWorkerLog(): void {
+  if (process.env.POSTPROCESS_ECHO === 'off') return; // the two-account launcher prints each lane's worker log itself
   try {
     const f = logFile(); if (!fs.existsSync(f)) return;
     const size = fs.statSync(f).size; if (size < logPos) logPos = 0; if (size === logPos) return;

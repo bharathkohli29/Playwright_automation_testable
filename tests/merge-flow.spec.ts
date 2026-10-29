@@ -171,5 +171,6 @@ test('Logout', async ({ page }) => {
 // After the logout: wait until the background worker has finished the S3 check / SharePoint copy / Teams message of every branch.
 test('Background post-processing finishes', async () => {
   test.setTimeout(75 * 60_000);
-  if (postprocessMode() === 'background') await drainPostProcess(70);
+  // POSTPROCESS_WAIT=off: set by the two-account launcher (npm run parallel), which waits for every lane's worker itself at the very end
+  if (postprocessMode() === 'background' && process.env.POSTPROCESS_WAIT !== 'off') await drainPostProcess(70);
 });

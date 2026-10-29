@@ -1,13 +1,13 @@
 import { defineConfig } from '@playwright/test';
 import * as path from 'path';
-import { TEST_ENV, baseUrl, authFile } from './utils/env'; // also loads .env (override: true)
+import { TEST_ENV, baseUrl, authFile, ACCOUNT } from './utils/env'; // also loads .env (override: true)
 try { require('./queue-server/mirror'); } catch { /* optional: copies the log lines to the queue's live page; does nothing when the queue is not running */ }
 
 if (!process.env.RUN_DIR) {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
-  process.env.RUN_DIR = path.join(__dirname, 'results', `merge-flow_${TEST_ENV === 'dev' ? 'dev_' : ''}${stamp}`);
+  process.env.RUN_DIR = path.join(__dirname, 'results', `merge-flow_${TEST_ENV === 'dev' ? 'dev_' : ''}${stamp}${ACCOUNT ? `_acct${ACCOUNT}` : ''}`); // _acctN: two accounts started in the same minute never share a folder
 }
 const RUN_TIMEOUT_MIN = Number(process.env.RUN_TIMEOUT_MIN || 35);
 
@@ -19,7 +19,9 @@ export default defineConfig({
   maxFailures: 0, // a failed branch never stops the run: the next branch always starts
   timeout: (RUN_TIMEOUT_MIN + 5) * 60_000,
   expect: { timeout: 20_000 },
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // second account (ACCOUNT=2): its own report and output folders, otherwise starting it would wipe the first run's test-results
+  reporter: [['list'], ['html', { open: 'never', ...(ACCOUNT ? { outputFolder: `playwright-report-acct${ACCOUNT}` } : {}) }]],
+  ...(ACCOUNT ? { outputDir: `test-results-acct${ACCOUNT}` } : {}),
   use: {
     baseURL: baseUrl,
     browserName: 'chromium',
