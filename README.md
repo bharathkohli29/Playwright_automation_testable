@@ -128,13 +128,30 @@ The Teams success card of a branch lists, for each language of the branch, **eve
 - **Where the rows live:** `s3-check.json` (`tools`), so `npm run post` rebuilds the card.
 - **Size:** the webhook accepts about 28 KB. Long tables are shortened automatically: first the detail text, then the earlier-run columns.
 
+## QA EKS Mentor (why a tool failed)
+
+A small local model (`qa-eks-mentor-trained`, Qwen2.5 3B served by Ollama) explains **why a tool gave no output**, from the logs of the QA EKS cluster. It never changes the pass/fail verdict.
+
+**When it runs:** only for a branch that has a **platform defect** (a tool judged `EMPTY` / `FAIL` by the S3 check), at the moment the bug drafts are written, in the background worker. Branches without defects never start it. It is **off by default**; it turns on when `EKS_AWS_ACCESS_KEY_ID` + `EKS_AWS_SECRET_ACCESS_KEY` (the team's read-only cluster key) are in `.env`, or with `EKS_AUTO=on` plus your own `aws sso login --profile qa-eks-ro`. `EKS_AUTO=off` switches it off.
+
+**How it produces the output:**
+1. For each defective tool it starts `qa-eks-mentor/analyze.py` with the run id.
+2. `analyze.py` reads the `kubectl logs` of the 9 `cell-001-*` services in namespace `whitebox-cell-001` (current and previous container), finds the lines of that run, applies fixed rules, and only then asks the model for a short summary.
+3. It writes `Analysis_Report_<tool>-<run>.pdf` and `<tool>-<run>.md`. The files are copied into `<branch folder>/qa-eks-analysis/`, so the SharePoint upload carries them.
+4. The bug drafts (PDF, HTML, Jira text) print the diagnosis **only when such a ready report exists**. Without a report nothing is printed, never a guess.
+
+**When it is skipped (one line in the log, the run continues):** no EKS key or sign-in, `kubectl`/`aws` not on the PATH, the cluster not reachable from this PC (network / VPN), or the 8-minute limit (`EKS_ANALYZE_MIN`) reached. If the cluster was recreated with a new address, the saved kubectl context `qa-eks-ro` is refreshed from AWS automatically (needs the EKS key; with a sign-in profile run `aws eks update-kubeconfig --name qa-eks --region us-east-2 --alias qa-eks-ro` once).
+
+**Limits:** cluster logs only reach back to the cluster's start, so old runs cannot be analysed. Settings: `EKS_CLUSTER_NAME` (qa-eks), `EKS_REGION` (us-east-2), `EKS_PYTHON`, `EKS_KUBECTL`, `EKS_AWS_CLI`, `EKS_ANALYZE_MIN`, `EKS_MENTOR_DIR`. Keep the key in `.env` only, never in the repository.
+
 ## Output
 
 Each run writes to `results/merge-flow_<date>_<time>/`, one folder per branch:
 
 - screenshots, `ui-values.json`, `run-details.json`, the taxonomy report and `taxonomy-gate-...-with-ui-values.html` (UI value + S3 columns),
 - `s3-check.json`, `s3-evidence/` (a copy of every tool file), `bugs/` (bug drafts),
-- `postprocess.json`: the status of S3, SharePoint and Teams for that branch.
+- `postprocess.json`: the status of S3, SharePoint and Teams for that branch,
+- `qa-eks-analysis/`: the QA EKS Mentor reports (only when a tool had a defect and the analysis ran).
 
 SharePoint copy: `Automation Evidences Dump/<DD-MM-YYYY>/<branch>` in the team library.
 
