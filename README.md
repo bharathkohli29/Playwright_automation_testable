@@ -113,6 +113,21 @@ Every account in `.env` (`TESTABLE_EMAIL`, `TESTABLE_EMAIL_2`, ...) becomes a **
 - Output lines are prefixed `[acct1]` / `[acct2]`; the background workers' lines are `[acct1 post]` / `[acct2 post]`.
 - Run it from a terminal, not the Test Explorer. `npm test` and the single-account flow are unchanged.
 
+## Tool Trigger Log in the Teams card
+
+The Teams success card of a branch lists, for each language of the branch, **every tool** in a grid table:
+
+| # | Tool | Triggered (earlier run) | Triggered (this run) | S3 output (earlier -> this) | Tool output |
+|---|---|---|---|---|---|
+| 1 | lizard | ✅ | ✅ | ✅ → ✅ | 1 file entry |
+| 9 | maven-checksum | ✅ | ⚠️ | ✅ → ⚠️ | the tool reported not_applicable (...) |
+
+✅ Output (data), ❌ Empty or Failed, ⚠️ Skipped (the tool said not applicable), ❌ Not triggered (no S3 folder), – no earlier data. The detail text comes from the validator of the language; tools that are excluded for the language version are left out. The table needs Adaptive Card 1.5 (the card version is raised only when a table is present).
+
+- **Earlier run, from SharePoint (not from this PC):** before the Teams card the worker looks in the team folder `Automation Evidences Dump/<DD-MM-YYYY>/<branch>` (and `<branch>_RUN2`, `_RUN3`) for the newest **earlier** run of the same branch that holds tool rows, reads its `s3-check.json`, and saves the result as `previous-tools.json` in the branch folder. It works from any PC and after any number of days, as long as that run was uploaded to SharePoint with this feature (older uploads have no tool rows, so the comparison starts with the next two uploads). It needs the SharePoint sign-in (`npm run sp:login`) or Graph; without it the table has a single Triggered column and no arrow. Runs of a later day than the run being processed are ignored, and so is the run itself. When both runs are on the same day the headers show the time as well.
+- **Where the rows live:** `s3-check.json` (`tools`), so `npm run post` rebuilds the card.
+- **Size:** the webhook accepts about 28 KB. Long tables are shortened automatically: first the detail text, then the earlier-run columns.
+
 ## Output
 
 Each run writes to `results/merge-flow_<date>_<time>/`, one folder per branch:

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import type { Page } from '@playwright/test';
+import { toolLogElements, previousRun, ToolRow } from './toolLog';
 
 /**
  * Teams notification (add-on). One message per branch, posted when the branch finishes.
@@ -24,7 +25,7 @@ export interface TeamsInfo {
 }
 
 /** Tool-validation summary (language + version, tool counts, tools with a bug) read from <branch folder>/s3-check.json. Empty when there is none. */
-function toolSummary(dir?: string): unknown[] {
+export function toolSummary(dir?: string, noteMax = 70, withPrev = true): unknown[] {
   try {
     if (!dir) return [];
     const j = JSON.parse(fs.readFileSync(path.join(dir, 's3-check.json'), 'utf8'));
@@ -35,11 +36,20 @@ function toolSummary(dir?: string): unknown[] {
       const repo: string[] = s.repoDefects || [];
       const line = `${name} ${runtime === 'Node' ? 'Node ' : ''}${runtime === 'C#' ? (s.version || '').replace(/^\.NET/, '.NET') : s.version} — ${Math.max(0, s.expected - (s.missing?.length || 0) - (s.empty || 0) - (s.falseEmpty || 0) - (s.failed || 0))}/${s.expected} expected tools OK` + (s.naByDesign?.length ? ` · ${s.naByDesign.length} N/A by design` : '');
       out.push({ type: 'TextBlock', text: `**${line}**`, wrap: true, spacing: 'Medium' });
-      if (!defects.length && !repo.length) { out.push({ type: 'TextBlock', text: '✅ No tool bugs found', wrap: true, spacing: 'None', color: 'Good' }); continue; }
+      // Tool Trigger Log: one line per tool of this language (tool, triggered / result, detail), under the bug summary
+      const log = toolLogElements(name, String(j.branch || ''), (s.tools as ToolRow[]) || [], noteMax, withPrev ? previousRun(dir, key) : null, path.basename(path.dirname(path.resolve(dir))));
+      if (!defects.length && !repo.length) { out.push({ type: 'TextBlock', text: '✅ No tool bugs found', wrap: true, spacing: 'None', color: 'Good' }); out.push(...log); continue; }
       const lines = defects.slice(0, 10).map((d) => `• ${d.tool} — ${String(d.tag).replace(/[\[\]]/g, '')}`);
       if (defects.length > 10) lines.push(`• … and ${defects.length - 10} more`);
       if (lines.length) out.push({ type: 'TextBlock', text: `❌ ${defects.length} tool bug${defects.length > 1 ? 's' : ''} (draft reports saved):\n\n${lines.join('\n\n')}`, wrap: true, spacing: 'None', color: 'Attention' });
       if (repo.length) out.push({ type: 'TextBlock', text: `⚠ Repo-side failures (not platform bugs): ${repo.slice(0, 8).join(', ')}`, wrap: true, spacing: 'None', isSubtle: true });
+      out.push(...log);
+    }
+    // the webhook accepts about 28 KB: shorten the detail text, then drop it, then drop the earlier-run columns, when the tables get too long
+    if (JSON.stringify(out).length > 21_000) {
+      if (noteMax > 30) return toolSummary(dir, 30, withPrev);
+      if (noteMax > 0) return toolSummary(dir, 0, withPrev);
+      if (withPrev) return toolSummary(dir, 0, false);
     }
     if (!out.length) { // no validation summary (for example Python 3.6 or a language without a tool matrix): still show language + version
       let rd: any = {}; try { rd = JSON.parse(fs.readFileSync(path.join(dir, 'repo-details.json'), 'utf8')); } catch { /* ignore */ }
@@ -60,7 +70,7 @@ const card = (body: unknown[], url?: string, evidence?: string, after: unknown[]
     contentType: 'application/vnd.microsoft.card.adaptive',
     content: {
       $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-      type: 'AdaptiveCard', version: '1.4',
+      type: 'AdaptiveCard', version: JSON.stringify([body, after]).includes('"type":"Table"') ? '1.5' : '1.4', // the Tool Trigger Log table needs 1.5
       // buttons sit inside the body (ActionSet) so the tool summary can come AFTER them
       body: [
         ...body,

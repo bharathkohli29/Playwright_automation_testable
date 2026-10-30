@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
 
 /**
@@ -232,6 +233,7 @@ export function checkTool(tool: string, f: FileMap): PyResult {
 
 // ---------- applying it ----------
 export interface PySummary {
+  tools?: ToolRow[]; // one row per tool for the Tool Trigger Log in Teams
   version: string; expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
   missing: string[]; naByDesign: string[]; outsideMatrix: string[]; contamination: string[];
   defects: PyDefect[]; // platform bugs found (the only ones a bug report is written for) — see bugReport.ts
@@ -305,8 +307,10 @@ export function validatePython(bd: string, rows: any[], inventory: Record<string
     const why = notExpectedReason(t, v);
     if (why) { if (fo) { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on Python ${v.label} although it must be excluded (${why})`, folder: fo, ranOutsideMatrix: true }); } else if (!RETIRED.includes(t) && !FIXTURES.includes(t)) sum.naByDesign.push(t); continue; }
     if (!expected.includes(t)) continue; // PY_IGNORE_TOOLS
+    { const _row = toolRow(t, 'Y', false, null, false); if (_row) (sum.tools ||= []).push(_row); }
     if (!fo) { sum.missing.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Python ${v.label} but was not triggered — no folder in the run` }); continue; }
     const r = checkTool(t, loadTool(bd, fo));
+    { const _row = toolRow(t, 'Y', true, r, false); if (_row) (sum.tools ||= []).push(_row); }
     if (r.status === 'OK') sum.ok++; else if (r.status === 'CLEAN') sum.clean++;
     else if (r.status === 'FALSE_EMPTY') { sum.falseEmpty++; sum.defects.push({ tool: t, tag: '[False Empty Defect]', observed: 'Empty JSON with 0 files scanned', note: r.note, folder: fo }); }
     else if (r.status === 'FAILED') { sum.failed++; const k = failureKind(r.note); if (k.repo) sum.repoDefects.push(t); else sum.defects.push({ tool: t, tag: '[Runner Execution Defect]', observed: 'FAILED', note: r.note, folder: fo }); }

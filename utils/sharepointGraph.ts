@@ -187,3 +187,24 @@ export async function checkTarget(say: (m: string) => void = console.log): Promi
   const r = await resolveTarget();
   say(`  OK: library found; evidence goes to  ${r.base.join('/')}/${dayFolderName()}/<branch>`);
 }
+
+/** Read-only (Microsoft Graph mode): sub-folders of a folder under the evidence folder with their creation time. */
+export async function graphListFolders(segs: string[]): Promise<{ name: string; created: string }[]> {
+  const r = await resolveTarget(); const out: { name: string; created: string }[] = [];
+  let url: string | null = `${itemUrl(r, segs)}:/children?$select=name,folder,createdDateTime&$top=999`;
+  while (url) {
+    const res = await graph('GET', url);
+    if (res.status === 404) return [];
+    const j = (await (await must(res, 'list folders')).json()) as any;
+    for (const x of j.value || []) if (x.folder) out.push({ name: String(x.name), created: String(x.createdDateTime || '') });
+    url = j['@odata.nextLink'] || null;
+  }
+  return out;
+}
+/** Read-only (Microsoft Graph mode): text of a file under the evidence folder; null when it does not exist. */
+export async function graphReadText(segs: string[]): Promise<string | null> {
+  const r = await resolveTarget();
+  const res = await graph('GET', `${itemUrl(r, segs)}:/content`);
+  if (res.status === 404 || !res.ok) return null;
+  return await res.text();
+}

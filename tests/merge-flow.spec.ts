@@ -10,6 +10,7 @@ import { describeAwsError } from '../utils/awsS3';
 import { dummyPrEnabled, pushDummyCommit } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
 import { shareBranch } from '../utils/postprocess';
+import { attachPreviousFromSharePoint } from '../utils/sharepointHistory';
 import { postprocessMode, enqueuePostProcess, echoWorkerLog, drainPostProcess } from '../utils/postprocessQueue';
 
 const builds = loadBuilds();
@@ -147,6 +148,7 @@ builds.forEach((build, index) => {
       // (handed-off branches: the background worker does the copy and the message after the S3 check)
       if (!handedOff) {
         let evidenceUrl: string | undefined;
+        if (status === 'passed') await attachPreviousFromSharePoint(branchDir(build.dir)).catch(() => {}); // the earlier run for the Tool Trigger Log, from SharePoint
         if (status === 'passed') { try { evidenceUrl = (await shareBranch(branchDir(build.dir))).url; } catch (e) { console.log(`  SharePoint: not copied (${e instanceof Error ? e.message : e}) — the run is not affected`); } }
         // Teams message (add-on; only when TEAMS_WEBHOOK_URL is set; never throws)
         await notifyTeams(page, {

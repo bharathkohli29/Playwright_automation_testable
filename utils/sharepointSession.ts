@@ -16,7 +16,7 @@ export const sessionSaved = () => fs.existsSync(SESSION_FILE);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const q = (s: string) => encodeURIComponent(s.replace(/'/g, "''")).replace(/%2F/g, '/'); // value inside decodedurl='…'
 
-class Session {
+export class Session {
   digest = ''; digestAt = 0;
   constructor(public ctx: APIRequestContext, public site: string, public siteRel: string, public rel: string[], public librarySeg = '') {}
   expired(): never { throw new Error('SharePoint: sign-in expired — run  npm run sp:login  again'); }
@@ -52,6 +52,21 @@ class Session {
   }
   async makeFolder(segs: string[]) { if (await this.folderExists(segs)) return; const r = await this.call('POST', `/_api/web/folders/addUsingPath(decodedurl='${q(this.path(segs))}')`); if (r.status >= 400) throw new Error(`SharePoint: create folder ${segs.at(-1)} HTTP ${r.status} ${r.text.slice(0, 120)}`); }
   // the folder is given relative to the site (no /sites/<site>/ prefix): deep s3-evidence paths otherwise exceed SharePoint's request-URL length limit
+  /** sub-folders of a folder under the evidence folder: name and creation time (read only; an empty list when the folder does not exist) */
+  async listFolders(segs: string[]): Promise<{ name: string; created: string }[]> {
+    const r = await this.call('GET', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(segs))}')/Folders?$select=Name,TimeCreated&$top=5000`);
+    if (r.status === 404) return [];
+    if (r.status >= 400) throw new Error(`SharePoint: list folders HTTP ${r.status} ${r.text.slice(0, 120)}`);
+    let j: any = {}; try { j = r.json(); } catch { /* not json */ }
+    return (j.value || []).map((x: any) => ({ name: String(x.Name), created: String(x.TimeCreated || '') }));
+  }
+  /** text of a file under the evidence folder (read only); null when it does not exist */
+  async readText(segs: string[]): Promise<string | null> {
+    const r = await this.call('GET', `/_api/web/GetFileByServerRelativePath(decodedurl='${q(this.path(segs))}')/$value`);
+    if (r.status === 404) return null;
+    if (r.status >= 400) return null;
+    return r.text;
+  }
   async putFile(folder: string[], name: string, file: string) { const r = await this.call('POST', `/_api/web/GetFolderByServerRelativePath(decodedurl='${q(this.path(folder).slice(this.siteRel.length - this.librarySeg.length))}')/files/addUsingPath(decodedurl='${q(name)}',Overwrite=true)`, fs.readFileSync(file)); if (r.status >= 400) throw new Error(`HTTP ${r.status} ${r.text.slice(0, 120)}`); }
 }
 
@@ -119,4 +134,10 @@ export async function uploadBranchSession(branchFolder: string): Promise<{ url: 
     const url = `https://${t.host}${t.sitePath}/${encodeURIComponent(t.library)}/Forms/AllItems.aspx?id=${encodeURIComponent(s.path([day, name]))}`;
     return { url, message };
   } finally { await s.ctx.dispose().catch(() => {}); }
+}
+
+/** Runs fn with one signed-in session (for several read calls) and closes it afterwards. */
+export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T> {
+  const s = await open();
+  try { return await fn(s); } finally { await s.ctx.dispose().catch(() => {}); }
 }

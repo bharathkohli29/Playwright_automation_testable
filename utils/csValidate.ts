@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
 import { FileMap, PyDefect, PyStatus, R, PyResult, isBlank, len, loadTool, nn, num } from './pyValidate';
 
@@ -207,6 +208,7 @@ export function checkCs(tool: string, f: FileMap): PyResult {
 
 // ---------- applying it ----------
 export interface CsSummary {
+  tools?: ToolRow[]; // one row per tool for the Tool Trigger Log in Teams
   language: 'csharp'; version: string; target: string; assumption: string;
   expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
   missing: string[]; naByDesign: string[]; optionalMissing: string[]; optionalFailed: string[]; outsideMatrix: string[]; contamination: string[]; notApplicable: string[];
@@ -271,7 +273,7 @@ export function validateCSharp(bd: string, rows: any[], inventory: Record<string
   for (const t of CS_TOOLS) {
     if (ign.includes(t)) continue;
     const lv = level(t, col); const l = load(t); const f = l?.fl[0];
-    const r = l ? checkCs(t, l.map) : null; const reportedNA = !!r && NA(r);
+    const r = l ? checkCs(t, l.map) : null; const reportedNA = !!r && NA(r); { const _row = toolRow(t, lv, !!l, r, reportedNA); if (_row) (sum.tools ||= []).push(_row); }
     if (lv === 'NO') {
       if (l && !reportedNA && r!.status !== 'FAILED') { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on ${v.label} although it must be excluded (${why(t, v)})`, folder: f, ranOutsideMatrix: true }); }
       else sum.naByDesign.push(t);

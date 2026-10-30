@@ -8,6 +8,7 @@ import { uploadBranchToSharePoint, sharepointBranchUrl, sharepointDir } from './
 import { graphConfigured, uploadBranchGraph } from './sharepointGraph';
 import { sessionSaved, uploadBranchSession } from './sharepointSession';
 import { notifyTeams, teamsEnabled } from './teams';
+import { attachPreviousFromSharePoint } from './sharepointHistory';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -46,7 +47,7 @@ export async function shareBranch(branchDir: string): Promise<{ skipped: boolean
 }
 
 export async function runPostProcess(job: PostJob): Promise<boolean> {
-  const st: PostState = { state: 'running', steps: { s3: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
+  const st: PostState = { state: 'running', steps: { s3: 'pending', history: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
   // a short network / DNS outage must not lose the whole branch: network-type failures are retried after 30 s, 90 s and 3 min
   const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
@@ -72,6 +73,8 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     console.log('  S3 evidence for this branch …');
     await checkBranchS3(job.branchDir, undefined, job.repo);
   });
+  // the earlier run of this branch for the Tool Trigger Log, read from the team's SharePoint folder (not from this PC); saved in the branch folder so it uploads with it
+  await step('history', async () => { const r = await attachPreviousFromSharePoint(job.branchDir); return r === 'skipped' ? 'skipped' : r; });
   // a failed S3 step does not stop the copy / message: the site run itself passed
   let evidenceUrl: string | undefined;
   await step('sharepoint', async () => { const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });

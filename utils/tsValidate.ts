@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
 import { FileMap, PyDefect, PyStatus, R, PyResult, isBlank, len, loadTool, nn, num } from './pyValidate';
 import { checkJs } from './jsValidate';
@@ -236,6 +237,7 @@ export function checkTs(tool: string, f: FileMap): PyResult {
 
 // ---------- applying it ----------
 export interface TsSummary {
+  tools?: ToolRow[]; // one row per tool for the Tool Trigger Log in Teams
   language: 'typescript'; version: string; packageManager: string; layout: string; assumption: string;
   expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
   missing: string[]; naByDesign: string[]; optionalMissing: string[]; optionalFailed: string[]; outsideMatrix: string[]; contamination: string[]; notApplicable: string[];
@@ -301,7 +303,7 @@ export function validateTypeScript(bd: string, rows: any[], inventory: Record<st
   for (const t of TS_TOOLS) {
     if (ign.includes(t) || EXTRA.includes(t)) continue;
     const lv = level(t, node); const l = load(t); const f = l?.fl[0];
-    const r = l ? checkTs(t, l.map) : null; const reportedNA = !!r && NA(r);
+    const r = l ? checkTs(t, l.map) : null; const reportedNA = !!r && NA(r); { const _row = toolRow(t, lv, !!l, r, reportedNA); if (_row) (sum.tools ||= []).push(_row); }
     if (lv === 'NO') {
       if (l && !reportedNA && r!.status !== 'FAILED') { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on ${nodeLabel} although it must be excluded (${why(t, node)})`, folder: f, ranOutsideMatrix: true }); }
       else sum.naByDesign.push(t);

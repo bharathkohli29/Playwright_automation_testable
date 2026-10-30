@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
 import { FileMap, PyDefect, PyStatus, R, PyResult, folderFor, isBlank, len, loadTool, nn, num } from './pyValidate';
 
@@ -215,6 +216,7 @@ export function checkJs(tool: string, f: FileMap): PyResult {
 
 // ---------- applying it ----------
 export interface JsSummary {
+  tools?: ToolRow[]; // one row per tool for the Tool Trigger Log in Teams
   language: 'javascript'; version: string; packageManager: string; layout: string;
   expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
   missing: string[]; naByDesign: string[]; optionalMissing: string[]; outsideMatrix: string[]; contamination: string[]; notApplicable: string[];
@@ -281,6 +283,7 @@ export function validateJavaScript(bd: string, rows: any[], inventory: Record<st
     if (ign.includes(t)) continue;
     const r = f ? checkJs(t, loadTool(bd, f)) : null;
     const reportedNA = !!r && NA(r);
+    { const _row = toolRow(t, lv, !!f, r, reportedNA); if (_row) (sum.tools ||= []).push(_row); }
     if (lv === 'NO') {
       if (f && !reportedNA) { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on Node ${v.label} although it must be excluded (${why(t, node)})`, folder: f, ranOutsideMatrix: true }); }
       else sum.naByDesign.push(t);
