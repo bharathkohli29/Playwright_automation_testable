@@ -70,6 +70,7 @@ Copy `.env.example` to `.env`. Values in `.env` always win over terminal variabl
 | `TEST_ENV` | yes | `qa` (default) or `dev` |
 | `TESTABLE_EMAIL`, `TESTABLE_PASSWORD` | yes | Testable login (`..._DEV` variants for `TEST_ENV=dev`) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | for the S3 check | Temporary keys, expire after hours to about a day |
+| `S3_BUCKET`, `S3_ROOT` | optional | Evidence bucket (QA default `testable-qa-artifacts-759498976252`) and the folder in front of `<tenant>/<project>/…` (default `cells/cell-001/qa/cell-001` for `TEST_ENV=qa`, `development/cell-001` for dev; set `S3_ROOT=development/cell-001` together with `S3_BUCKET=qa-bucket-us2` to read the old bucket) |
 | `TEAMS_WEBHOOK_URL` | optional | Teams channel webhook; empty = no Teams messages |
 | `POSTPROCESS` | optional | `background` (default) or `inline` (everything inside the test, one branch after the other) |
 | `GATE_SHOTS` | optional | `on` = also screenshot every gate (values are always read) |
