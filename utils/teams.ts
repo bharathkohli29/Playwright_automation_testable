@@ -76,7 +76,7 @@ const card = (body: unknown[], url?: string, evidence?: string, after: unknown[]
         ...body,
         ...(url || evidence ? [{ type: 'ActionSet', actions: [
           ...(url ? [{ type: 'Action.OpenUrl', title: 'Open the run', url }] : []),
-          ...(evidence ? [{ type: 'Action.OpenUrl', title: 'Open evidence folder (SharePoint, uploads in a few minutes)', url: evidence }] : []),
+          ...(evidence ? [{ type: 'Action.OpenUrl', title: 'Open evidence folder (SharePoint)', url: evidence }] : []),
         ] }] : []),
         ...after,
       ],
