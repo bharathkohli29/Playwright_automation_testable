@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { S3Reader } from './awsS3';
+import { s3Root } from './env';
 import { Language, TechniqueTool, parseLanguages, toolsFor } from './techniqueTools';
 import { mergeTaxonomy } from './mergeTaxonomy';
 import { validatePython, summaryLine } from './pyValidate';
@@ -41,7 +42,7 @@ export const hasAwsCredentials = () => !!(process.env.AWS_ACCESS_KEY_ID || proce
  */
 export async function checkBranchS3(bd: string, s3: S3Reader = new S3Reader(), repo?: string): Promise<void> {
   const r = JSON.parse(fs.readFileSync(path.join(bd, 'run-details.json'), 'utf8'));
-  const base = `development/cell-001/${r.tenant_id}/${r.project_id}/${r.repository_id}/${r.branch_id}/${r.branch_name}/${r.commit_sha}/${r.run_id}/`;
+  const base = `${s3Root}${r.tenant_id}/${r.project_id}/${r.repository_id}/${r.branch_id}/${r.branch_name}/${r.commit_sha}/${r.run_id}/`;
   await s3.check(base);
   const { languages, source, ignored } = branchLanguages(bd);
   console.log(`\n  ${r.branch_name}  run ${r.run_id}\n  Languages (${source}): ${languages.join(', ')}${ignored.length ? `   [no tool map yet for: ${ignored.join(', ')}]` : ''}`);
