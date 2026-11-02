@@ -9,7 +9,7 @@ if (!process.env.RUN_DIR) {
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
   process.env.RUN_DIR = path.join(__dirname, 'results', `merge-flow_${TEST_ENV === 'dev' ? 'dev_' : ''}${stamp}${ACCOUNT ? `_acct${ACCOUNT}` : ''}`); // _acctN: two accounts started in the same minute never share a folder
 }
-const RUN_TIMEOUT_MIN = Number(process.env.RUN_TIMEOUT_MIN || 35);
+const RUN_TIMEOUT_MIN = Number(process.env.RUN_TIMEOUT_MIN || 60);
 
 export default defineConfig({
   testDir: './tests',

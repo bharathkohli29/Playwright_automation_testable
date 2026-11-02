@@ -9,7 +9,9 @@
     "queue": "node queue-server/server.js",
     "sp:login": "tsx utils/spLogin.ts",
     "post": "tsx utils/postprocessCli.ts",
-    "parallel": "tsx utils/parallelRun.ts"
+    "parallel": "tsx utils/parallelRun.ts",
+    "eks:setup": "tsx utils/eksSetup.ts",
+    "eks:history": "tsx utils/eksHistory.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0"

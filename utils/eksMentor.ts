@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { liveDiagnosis } from './eksDiagnose';
 
 export interface EksAiDiagnosis {
   summary?: string;
@@ -10,7 +11,7 @@ export interface EksAiDiagnosis {
   remediation?: string;
   verdict?: string;
   /** 'report' = parsed from a ready analyze.py report (built from real QA EKS log lines); 'model' = the model answered a question that carried no log lines */
-  source?: 'report' | 'model';
+  source?: 'report' | 'model' | 'live';
 }
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
@@ -129,7 +130,7 @@ async function queryOllamaDirect(prompt: string, timeoutMs = 12_000): Promise<st
 export async function getEksAiDiagnosis(
   tool: string,
   runId: string,
-  context?: { branch?: string; version?: string; repo?: string; observed?: string; note?: string }
+  context?: { branch?: string; version?: string; repo?: string; observed?: string; note?: string; branchDir?: string }
 ): Promise<EksAiDiagnosis | null> {
   // 1. Check local pre-generated report in mentor/reports/
   const localMd = readLocalReport(tool, runId);
@@ -137,7 +138,13 @@ export async function getEksAiDiagnosis(
     return { ...parseReportMarkdown(localMd), source: 'report' };
   }
 
-  // 2. Query Ollama directly with run facts
+  // 2. Real log lines captured live from the QA EKS pods during this run (eks-live/): the model explains ONLY those lines
+  if (context?.branchDir) {
+    const live = await liveDiagnosis(tool, runId, context.branchDir, { observed: context.observed, note: context.note, version: context.version });
+    if (live) return live;
+  }
+
+  // 3. Query Ollama directly with run facts
   const prompt = [
     `EVIDENCE:`,
     `TOOL: ${tool}`,

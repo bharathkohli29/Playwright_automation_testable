@@ -18,7 +18,7 @@ const ROOT = path.join(__dirname, '..');
 const DEV = TEST_ENV === 'dev';
 const CMD = process.env.PARALLEL_CMD || 'npx playwright test --project=flow'; // PARALLEL_CMD: test hook
 const STAGGER_MS = Number(process.env.PARALLEL_STAGGER_SEC ?? 20) * 1000; // lane k starts k x this later, so two logins and two analyses do not start in the same second
-const CAP_MIN = Number(process.env.RUN_TIMEOUT_MIN || 35) + 45; // a branch process that runs longer than this is killed (frozen)
+const CAP_MIN = Number(process.env.RUN_TIMEOUT_MIN || 60) + 45; // a branch process that runs longer than this is killed (frozen)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const p2 = (n: number) => String(n).padStart(2, '0');
 

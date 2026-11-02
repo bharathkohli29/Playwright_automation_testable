@@ -9,7 +9,12 @@ import * as path from 'path';
  * (<SHAREPOINT_DIR>\<branch>, a repeat run of the same branch the same day: <branch>_RUN2, _RUN3 …) and OneDrive uploads it to SharePoint by itself.
  * Empty SHAREPOINT_DIR = off. Never throws — a copy problem can not affect the run.
  */
-export const sharepointDir = () => (process.env.SHAREPOINT_DIR || '').trim().replace(/^["']|["']$/g, '');
+/** {DD-MM-YYYY} (also {DD-MM-YY}, {YYYY-MM-DD}) in SHAREPOINT_DIR / SHAREPOINT_URL is replaced by today's date, so the day's folder needs no editing in .env. The day's OneDrive shortcut must still exist. */
+export const expandDate = (s: string, d = new Date()) => {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return s.replace(/\{DD-MM-YYYY\}/g, `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`).replace(/\{DD-MM-YY\}/g, `${p(d.getDate())}-${p(d.getMonth() + 1)}-${String(d.getFullYear()).slice(2)}`).replace(/\{YYYY-MM-DD\}/g, `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+};
+export const sharepointDir = () => expandDate((process.env.SHAREPOINT_DIR || '').trim().replace(/^["']|["']$/g, ''));
 
 
 /**
@@ -76,7 +81,7 @@ export function uploadBranchToSharePoint(branchFolder: string): string {
  * (open it in SharePoint, copy the address from the browser, NOT the "Copy link" button). Empty (or SHAREPOINT_DIR empty) = no link.
  */
 export function sharepointBranchUrl(branchFolder: string): string {
-  const base = (process.env.SHAREPOINT_URL || '').trim().replace(/^["']|["']$/g, '');
+  const base = expandDate((process.env.SHAREPOINT_URL || '').trim().replace(/^["']|["']$/g, ''));
   if (!base || !sharepointDir()) return '';
   if (/\/:[a-z]:\//i.test(base)) { console.log('  SharePoint link: SHAREPOINT_URL is a "Copy link" sharing link — use the address-bar URL of the day folder instead (no button added)'); return ''; }
   try {

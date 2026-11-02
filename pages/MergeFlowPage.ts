@@ -506,16 +506,18 @@ export class MergeFlowPage {
     }
   }
 
-  async waitForRunToFinish() {
+  async waitForRunToFinish(abortIf?: () => string | null | undefined) {
     const doneText = this.page.getByText(/Execution finished|Run complete/i).first();
     const startedAt = Date.now();
-    const limitMin = Number(process.env.RUN_TIMEOUT_MIN || 35);
+    const limitMin = Number(process.env.RUN_TIMEOUT_MIN || 60);
     const deadline = startedAt + limitMin * 60_000;
     let check = 0; let stopped = 0;
     // Check every 30 s; stop as soon as it is done (already-analysed commits are done at once).
     while (Date.now() < deadline) {
       check++;
       await this.failIfSiteError('waiting for the run');
+      const stuckWhy = abortIf?.(); // e.g. the QA EKS collector saw a RUNTIME_UNAVAILABLE loop: waiting longer cannot help
+      if (stuckWhy) throw new Error(`ENVIRONMENT: ${stuckWhy}`);
       const st: Awaited<ReturnType<MergeFlowPage['executionState']>> = await this.executionState().catch(() => ({ found: false, done: false, failed: false }));
       if (st.done || (await doneText.isVisible().catch(() => false))) {
         console.log(`  ✅ execution PASSED (finished) after ${Math.round((Date.now() - startedAt) / 1000)}s`);
@@ -661,6 +663,13 @@ export class MergeFlowPage {
     const uiRows: { category: string; technique: string; sub: string; rows: Record<string, string>[] }[] = [];
     let n = 0;
     const retry: { cat: string; tech: string; sub: string; file: string; idx: number }[] = [];
+    // one chip that can not be opened (the page shows a different chip list than it listed a moment ago) must not lose the other ~100 gates: it is logged and skipped
+    const skipped: { cat: string; tech: string; sub?: string; why: string }[] = [];
+    const skip = async (cat: string, tech: string, sub: string | undefined, e: unknown) => {
+      const why = (e instanceof Error ? e.message : String(e)).split('\n')[0].slice(0, 160);
+      skipped.push({ cat, tech, sub, why }); console.log(`  ⚠ gate skipped: ${cat} › ${tech}${sub ? ` › ${sub}` : ''} — ${why}`);
+      await this.page.keyboard.press('Escape').catch(() => {}); await this.page.waitForTimeout(500);
+    };
     const cats = this.page.locator('button.border-b-2');
     const catNames: string[] = [];
     for (let i = 0; i < (await cats.count()); i++) catNames.push(((await cats.nth(i).innerText()) || '').replace(/\s+/g, ' ').trim());
@@ -670,9 +679,10 @@ export class MergeFlowPage {
       await this.page.waitForTimeout(800);
       const techs = await this.chipNames(this.techRow());
       for (const tech of techs) {
-        await this.pick(this.techRow(), tech);
-        const subs = await this.chipNames(this.subRow());
+        let subs: string[] = [];
+        try { await this.pick(this.techRow(), tech); subs = await this.chipNames(this.subRow()); } catch (e) { await skip(cat, tech, undefined, e); continue; }
         for (const sub of subs) {
+          try {
           await this.pick(this.subRow(), sub);
           const card = this.gateCard();
           await expect(card.getByText(new RegExp(`${sub.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*Gate`, 'i')).first(), `gate card for ${cat} › ${tech} › ${sub}`).toBeVisible({ timeout: 20_000 });
@@ -686,9 +696,12 @@ export class MergeFlowPage {
           if (!loaded) retry.push({ cat, tech, sub, file, idx: uiRows.length });
           uiRows.push({ category: cat, technique: tech, sub, rows: await this.readGateRows(card) });
           saved.push(file);
+          } catch (e) { await skip(cat, tech, sub, e); }
         }
       }
     }
+    if (skipped.length) fs.writeFileSync(`${destDir}/../ui-values-skipped.json`, JSON.stringify(skipped, null, 2));
+    if (skipped.length && !uiRows.length) throw new Error(`No gate could be read (${skipped.length} skipped, first: ${skipped[0].why})`);
     // gates that were still loading when first visited (the evidence keeps loading while we move on): visit them again, now with a long wait
     for (const r of retry) {
       try {

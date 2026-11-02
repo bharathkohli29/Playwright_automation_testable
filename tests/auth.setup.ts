@@ -1,4 +1,5 @@
 import { test as setup, expect } from '@playwright/test';
+import { ensureEksSignedIn } from '../utils/eksLogin';
 import { TEST_ENV, loginEmail, loginPassword, authFile, baseUrl } from '../utils/env';
 
 // LOGIN_MODE=okta in .env (or $env:LOGIN_MODE="okta") signs in through "Sign in with SSO" → Okta. Default (normal / not set): the usual email + password login, unchanged.
@@ -7,6 +8,12 @@ const okta = /^okta$/i.test((process.env.LOGIN_MODE || '').trim());
 
 // Verified live on /auth/login: textbox "Email or username", textbox "Password", and a
 // button[type=submit] (no text). Credentials come from .env — never from the code.
+// QA EKS cluster sign-in (only when EKS_AUTO is on): if it expired, a private browser window opens and you sign in once; no answer = the round carries on without the cluster logs
+setup('QA EKS sign-in', async () => {
+  setup.setTimeout(((Number(process.env.EKS_LOGIN_WAIT_MIN) || 4) + 2) * 60_000);
+  await ensureEksSignedIn();
+});
+
 setup('log in', async ({ page }) => {
   await page.goto('/auth/login');
   const email = loginEmail;

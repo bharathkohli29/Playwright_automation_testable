@@ -103,15 +103,18 @@ interface Ctx { pm?: string; layout?: string; version: string; branch: string; r
 /** The QA EKS Mentor's diagnosis as label/value rows (empty when there is none, so the report stays exactly as before). One line each, cut at 700 characters. */
 function aiRows(ai?: EksAiDiagnosis | null): Array<[string, string]> {
   // Only a diagnosis built from real QA EKS log lines (a ready analyze.py report) is printed. A direct model answer carries no log lines and can invent evidence, so it is left out.
-  if (!ai || ai.source !== 'report') return [];
+  // (source 'live' = the model explained real log lines captured from the pods during this run, and says whether its quoted line is in them)
+  if (!ai || (ai.source !== 'report' && ai.source !== 'live')) return [];
   const one = (s?: string) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 700);
-  const rows: Array<[string, string]> = [['Verdict', one(ai.verdict)], ['Summary', one(ai.summary)], ['Root cause', one(ai.rootCause)], ['Evidence (QA EKS log line)', one(ai.evidence)], ['Owner', one(ai.owner)], ['Suggested fix', one(ai.suggestedFix)]];
+  const rows: Array<[string, string]> = [['Verdict', one(ai.verdict)], ['Summary', one(ai.summary)], ['Root cause', one(ai.rootCause)], [ai.source === 'live' ? 'Evidence (log line captured from the pod)' : 'Evidence (QA EKS log line)', one(ai.evidence)], ['Owner', one(ai.owner)], ['Suggested fix', one(ai.suggestedFix)]];
   return rows.filter(([, v]) => v);
 }
 const AI_NOTE = 'Written by the local QA EKS Mentor model from the QA EKS logs. A draft: check it against the logs before filing.';
+const AI_NOTE_LIVE = 'Written by the local model from log lines captured live from the QA EKS pods during this run (saved in the eks-live folder next to this report). The Verdict row says whether its quoted line is really in those logs. A draft: check before filing.';
+const noteOf = (ai?: EksAiDiagnosis | null) => (ai && ai.source === 'live' ? AI_NOTE_LIVE : AI_NOTE);
 const aiHtml = (ai?: EksAiDiagnosis | null) => {
   const rows = aiRows(ai); if (!rows.length) return '';
-  return `<h3>AI root-cause diagnosis (QA EKS Mentor)</h3>\n<table>\n${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('\n')}\n</table>\n<div class="draft">${esc(AI_NOTE)}</div>\n`;
+  return `<h3>AI root-cause diagnosis (QA EKS Mentor)</h3>\n<table>\n${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('\n')}\n</table>\n<div class="draft">${esc(noteOf(ai))}</div>\n`;
 };
 const aiJira = (ai?: EksAiDiagnosis | null) => {
   const rows = aiRows(ai); if (!rows.length) return '';
@@ -278,6 +281,7 @@ export async function writeBugReports(bd: string, repoArg?: string): Promise<str
           repo,
           observed: d.observed,
           note: d.note,
+          branchDir: bd,
         }).catch(() => null);
         await p2.setContent(pdfHtml(c, d, proof, shot, ai), { waitUntil: 'load' });
         await p2.pdf({ path: path.join(outDir, pdfName), format: 'A4', printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">Whitebox defect report · ${esc(tool)} · ${esc(LANG.lb(c.version))} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` });
