@@ -8,13 +8,14 @@ Needs: kubectl context qa-eks-ro (aws sso login done); ollama running unless --n
 import argparse
 import functools
 import json
+import os
 import pathlib
 import re
 import subprocess
 import urllib.request
 from xml.sax.saxutils import escape
 
-NS = "whitebox-cell-001"
+NS = os.environ.get("EKS_NAMESPACE", "wb-fabric-us-01-cell-001")  # the recreated QA cluster (30 Oct 2026) renamed whitebox-cell-001
 DEPLOYS = ["cell-001-wb-orchestrator", "cell-001-ingestion-api", "cell-001-ingestion-worker",
            "cell-001-runtime-api", "cell-001-wb-cpu-worker", "cell-001-wb-io-worker",
            "cell-001-scoring-worker", "cell-001-projector-worker", "cell-001-reconciliation-worker"]
@@ -66,6 +67,7 @@ def collect(run_id, tool, since):
     """Returns (events mentioning the run, events mentioning the tool in other runs, earliest log timestamp seen)."""
     short = run_id.split("-")[0]
     on_run, other, earliest = [], [], None
+    collect.tool_hits = 0  # lines of THIS run that mention the tool itself (the run's general warnings do not count)
     for dep in DEPLOYS:
         for line in log_lines(dep, since):
             m = re.search(r'"timestamp": "([^"]+)"', line)
@@ -77,6 +79,8 @@ def collect(run_id, tool, since):
             if not c:
                 continue
             c["service"] = dep
+            if short in line and tool in line:
+                collect.tool_hits += 1
             (on_run if short in line else other).append(c)
     return rank(on_run), rank([e for e in other if "excluded" in e]), earliest
 
@@ -138,7 +142,7 @@ def analyze(run_id, tool, on_run, other_runs, earliest):
         r["gaps"].append("Orchestrator planning events for this run are absent." if on_run else "No logs for this run in the retained window.")
     if earliest:
         r["gaps"].append(f"Earliest log still available on the cluster: {earliest}. Older runs cannot be analyzed from kubectl.")
-    if other_runs:
+    if other_runs and other_runs[0].get("excluded"):
         x = other_runs[0]["excluded"][0]
         r["hypotheses"].append(f"A DIFFERENT run ({other_runs[0].get('run_id')}) shows {tool} excluded with reason {x.get('reason')} "
                                "- a pattern worth checking for this run, not a finding.")
@@ -364,6 +368,7 @@ if __name__ == "__main__":
     ap.add_argument("--since", default="72h")
     ap.add_argument("--model", default="qa-eks-mentor-trained")
     ap.add_argument("--no-llm", action="store_true")
+    ap.add_argument("--all", action="store_true", help="also ask the model for a summary when no log line names the tool")
     a = ap.parse_args()
     facts = pathlib.Path(a.facts).read_text(encoding="utf-8") if a.facts else "(none provided)"
     probe = subprocess.run(["kubectl", "get", "pods", "-n", NS, "--no-headers"], capture_output=True, text=True)
@@ -372,13 +377,24 @@ if __name__ == "__main__":
     out = pathlib.Path(__file__).parent / "reports"
     out.mkdir(exist_ok=True)
     pods = pod_findings()
+    def facts_for(tool):
+        """Only this tool's own lines (a facts file for 47 tools in every report made one table cell taller than a page)."""
+        mine = [l for l in facts.splitlines() if re.search(r"(^|[\s:(,])" + re.escape(tool) + r"([\s:),.]|$)", l)]
+        return (chr(10).join(mine) if mine else facts)[:1500]
+
     for tool in [t.strip() for t in a.tool.split(",") if t.strip()]:
-        on_run, other_runs, earliest = collect(a.run_id, tool, a.since)
-        res = analyze(a.run_id, tool, on_run, other_runs, earliest)
-        res["pods"] = pods
-        summary = None if a.no_llm else llm_summary(a.model, res)
-        stem = f"{tool}-{a.run_id.split('-')[0]}"
-        (out / f"{stem}.md").write_text(render(res, facts, summary), encoding="utf-8")
-        pdf = out / f"Analysis_Report_{stem}.pdf"
-        build_pdf(res, facts, summary, pdf, a.model)
-        print(pdf, "| summary by model" if summary else "| summary from rules")
+        try:
+            on_run, other_runs, earliest = collect(a.run_id, tool, a.since)
+            # every not-triggered tool gets a report; when no log line of this run names the tool the report says so and the (slow) model summary is not asked for
+            quiet = collect.tool_hits == 0 and not other_runs
+            res = analyze(a.run_id, tool, on_run, other_runs, earliest)
+            res["pods"] = pods
+            summary = None if (a.no_llm or (quiet and not a.all)) else llm_summary(a.model, res)
+            stem = f"{tool}-{a.run_id.split('-')[0]}"
+            tf = facts_for(tool)
+            (out / f"{stem}.md").write_text(render(res, tf, summary), encoding="utf-8")
+            pdf = out / f"Analysis_Report_{stem}.pdf"
+            build_pdf(res, tf, summary, pdf, a.model)
+            print(pdf, "| summary by model" if summary else ("| summary from rules, no log line names this tool" if quiet else "| summary from rules"))
+        except Exception as e:  # noqa: BLE001  one failing tool must not stop the others
+            print(f"{tool} | FAILED: {type(e).__name__}: {str(e)[:160]}")

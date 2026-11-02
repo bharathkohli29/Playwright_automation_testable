@@ -141,3 +141,19 @@ export async function withSession<T>(fn: (s: Session) => Promise<T>): Promise<T>
   const s = await open();
   try { return await fn(s); } finally { await s.ctx.dispose().catch(() => {}); }
 }
+
+/**
+ * Where a large file under the evidence folder is read from: the address and the cookie header of the saved sign-in, so the caller can STREAM it
+ * (the 1.9 GB model file does not fit the buffered REST helpers above). Read only. Throws when there is no saved sign-in.
+ */
+export function sessionFileRequest(segs: string[]): { url: string; headers: Record<string, string> } {
+  if (!sessionSaved()) throw new Error('SharePoint: not signed in — run  npm run sp:login  once (sign in with your Microsoft work account)');
+  const t = parseSharePointUrl(process.env.SP_URL || DEFAULT_SP_URL);
+  const host = clean(process.env.SP_REST_BASE) || `https://${t.host}`;
+  const siteRel = `${t.sitePath}/${t.library}`;
+  const rel = `${siteRel}/${[...t.folder, ...segs].join('/')}`;
+  const cookies: Array<{ name: string; value: string; domain: string }> = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')).cookies || [];
+  const h = new URL(host).hostname;
+  const header = cookies.filter((c) => h.endsWith(c.domain.replace(/^\./, ''))).map((c) => `${c.name}=${c.value}`).join('; ');
+  return { url: `${host}${t.sitePath}/_api/web/GetFileByServerRelativePath(decodedurl='${q(rel)}')/$value`, headers: { Cookie: header } };
+}

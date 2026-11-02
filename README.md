@@ -59,6 +59,7 @@ When the last test, **Background post-processing finishes**, turns green, everyt
 | `npm run sp:login` | One-time SharePoint sign-in |
 | `npm run post -- "<branch folder>" --repo owner/name` | Redo S3 check, bug drafts, SharePoint and Teams for one finished branch (after a network problem or expired keys) |
 | `npm run s3` | Old way: re-check S3 for a results folder (`S3_RESULTS_DIR`, `S3_FORCE=1`) |
+| `npm run status` | Read-only status page on `http://localhost:3100` (`STATUS_PORT` changes it): every branch of a run with its state and browser step (1-15), the background worker steps (S3, history, SharePoint, Teams), the worker log and a health strip (site, AWS keys, Ollama, SharePoint sign-in, Teams, QA EKS). Start it in a second terminal; it never starts or changes a run |
 | `npm run queue` | Optional team branch queue (page on `http://localhost:3000`) |
 
 ## Settings (`.env`)
@@ -133,15 +134,19 @@ The Teams success card of a branch lists, for each language of the branch, **eve
 
 A small local model (`qa-eks-mentor-trained`, Qwen2.5 3B served by Ollama) explains **why a tool gave no output**, from the logs of the QA EKS cluster. It never changes the pass/fail verdict.
 
-**When it runs:** only for a branch that has a **platform defect** (a tool judged `EMPTY` / `FAIL` by the S3 check), at the moment the bug drafts are written, in the background worker. Branches without defects never start it. It is **off by default**; it turns on when `EKS_AWS_ACCESS_KEY_ID` + `EKS_AWS_SECRET_ACCESS_KEY` (the team's read-only cluster key) are in `.env`, or with `EKS_AUTO=on` plus your own `aws sso login --profile qa-eks-ro`. `EKS_AUTO=off` switches it off.
+**When it runs:** only for a branch that has a **platform defect** (a tool judged `EMPTY` / `FAIL` by the S3 check), at the moment the bug drafts are written, in the background worker. Branches without defects never start it. It is **always on**; only `EKS_AUTO=off` in `.env` switches it off. It needs the team's read-only cluster key (`EKS_AWS_ACCESS_KEY_ID` + `EKS_AWS_SECRET_ACCESS_KEY`) or your own `aws sso login --profile qa-eks-ro`. If Ollama is down, the script waits for its updater to finish or starts `ollama serve` itself (`EKS_OLLAMA` = full path when `ollama` is not on the PATH).
 
 **How it produces the output:**
 1. For each defective tool it starts `qa-eks-mentor/analyze.py` with the run id.
-2. `analyze.py` reads the `kubectl logs` of the 9 `cell-001-*` services in namespace `whitebox-cell-001` (current and previous container), finds the lines of that run, applies fixed rules, and only then asks the model for a short summary.
+2. `analyze.py` reads the `kubectl logs` of the 9 `cell-001-*` services in namespace `wb-fabric-us-01-cell-001` (`EKS_NAMESPACE` changes it) (current and previous container), finds the lines of that run, applies fixed rules, and only then asks the model for a short summary.
 3. It writes `Analysis_Report_<tool>-<run>.pdf` and `<tool>-<run>.md`. The files are copied into `<branch folder>/qa-eks-analysis/`, so the SharePoint upload carries them.
 4. The bug drafts (PDF, HTML, Jira text) print the diagnosis **only when such a ready report exists**. Without a report nothing is printed, never a guess.
 
 **When it is skipped (one line in the log, the run continues):** no EKS key or sign-in, `kubectl`/`aws` not on the PATH, the cluster not reachable from this PC (network / VPN), or the 8-minute limit (`EKS_ANALYZE_MIN`) reached. If the cluster was recreated with a new address, the saved kubectl context `qa-eks-ro` is refreshed from AWS automatically (needs the EKS key; with a sign-in profile run `aws eks update-kubeconfig --name qa-eks --region us-east-2 --alias qa-eks-ro` once).
+
+**The model on every PC (`npm run model:setup`):** the model file (GGUF, about 1.9 GB) is not in git. `qa-eks-mentor/model.json` says which model the script expects (name, version, sha256, file, url). Every developer needs [Ollama](https://ollama.com/download) installed. On the first run the script (or `npm run model:setup`) checks the PC: if the model is not registered with those exact weights, it looks for the file in `EKS_MODEL_FILE`, `qa-eks-mentor/models/`, then downloads it from `EKS_MODEL_URL` (or `url` in `model.json`), checks the sha256 and registers it with `ollama create` from `qa-eks-mentor/Modelfile`. Later runs only do a quick check. Without Ollama or the model file the run is not affected: the reports use the rule-based text and the log line says why. About 4 GB of free memory is needed.
+
+**New model version (QA lead):** `python qa-eks-mentor/register_model.py <new.gguf> --promote` tests it on the RCA cases and, only when it passes all of them, updates `model.json` (version + sha256). Put the file where `url` points, commit `model.json`, and every PC picks up the new model on its next run.
 
 **Limits:** cluster logs only reach back to the cluster's start, so old runs cannot be analysed. Settings: `EKS_CLUSTER_NAME` (qa-eks), `EKS_REGION` (us-east-2), `EKS_PYTHON`, `EKS_KUBECTL`, `EKS_AWS_CLI`, `EKS_ANALYZE_MIN`, `EKS_MENTOR_DIR`. Keep the key in `.env` only, never in the repository.
 

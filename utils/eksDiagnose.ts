@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import type { EksAiDiagnosis } from './eksMentor';
+import { parseReportMarkdown, type EksAiDiagnosis } from './eksMentor';
+import { ensureEksModel } from './eksModel';
 import { matchToolPattern } from './eksPatterns';
 
 /**
@@ -71,6 +72,7 @@ export function liveEvidence(branchDir: string, tool: string): LiveEvidence | nu
 const TS = /\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b\s*/g;
 
 async function askModel(prompt: string, ms: number): Promise<string | null> {
+  if (!(await ensureEksModel())) return null; // model missing on this PC: the caller marks NO_MODEL and still returns the real log lines
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
   try {
     const res = await fetch(`${OLLAMA_HOST()}/api/chat`, { method: 'POST', signal: ac.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL(), stream: false, options: { temperature: 0.1, num_ctx: 4096 }, messages: [{ role: 'user', content: prompt }] }) });
@@ -101,21 +103,21 @@ export async function liveDiagnosis(tool: string, runId: string, branchDir: stri
     const used = calls.get(branchDir) || 0; const maxCalls = Number(process.env.EKS_LIVE_MAX_CALLS) || 6;
     if (used >= maxCalls) return { ...base, verdict: `NOT_ANALYSED (limit of ${maxCalls} model calls per branch; the log lines are attached)` };
     calls.set(branchDir, used + 1);
+    // the RCA input block of qa-eks-mentor/RCA_PROMPT.md (the system prompt is in the model's Modelfile): the model was trained on exactly this shape
+    const state = /empty|\[\]|\{\}/i.test(ctx?.observed || '') ? 'EMPTY' : /fail/i.test(ctx?.observed || '') ? 'FAILED' : /skip|not applicable/i.test(ctx?.observed || '') ? 'SKIPPED' : 'NOT_TRIGGERED';
     const prompt = [
-      'You diagnose why a Testable whitebox analysis tool failed or produced no usable output.',
-      'Use ONLY the log lines below. Do not invent files, services or causes. If they do not show the cause, write ROOT_CAUSE: UNKNOWN - not shown in these lines.',
-      `TOOL: ${tool}${ctx?.version ? ` (${ctx.version})` : ''}`, `OBSERVED: ${ctx?.observed || ''} ${ctx?.note || ''}`.trim(), 'LOG LINES:',
-      ...ev.lines.map((l, i) => `${i + 1}. ${l}`),
-      'Answer in exactly this format:', 'SUMMARY: <one sentence>', 'ROOT_CAUSE: <one or two sentences>', 'EVIDENCE: <copy the one log line above that proves it>',
-      'OWNER: <platform | runner | repository | unknown>', 'SUGGESTED_FIX: <one sentence>',
+      'INPUT', `TOOL: ${tool}`, `STATE: ${state}`, `LANGUAGE: ${ctx?.version || 'unknown'}`, `BRANCH: ${path.basename(branchDir)}   RUN: ${runId}`,
+      `S3: ${(ctx?.observed || '') + ' ' + (ctx?.note || '')}`.trim().slice(0, 300), 'LOG EVIDENCE:',
+      ...ev.lines, `POD STATE: ${ev.podReason || 'not captured'}`,
     ].join('\n').slice(0, 5200);
     const ans = await askModel(prompt, (Number(process.env.EKS_LIVE_MODEL_SEC) || 120) * 1000);
     if (!ans) return { ...base, verdict: 'NO_MODEL (Ollama did not answer; the real log lines are attached)', rootCause: 'not analysed' };
-    const evid = field(ans, 'EVIDENCE'); const rc = field(ans, 'ROOT_CAUSE');
+    const rca = /^Verdict:/im.test(ans) ? parseReportMarkdown(ans) : null;
+    const evid = rca ? (rca.evidence || '') : field(ans, 'EVIDENCE'); const rc = rca ? (rca.rootCause || '') : field(ans, 'ROOT_CAUSE');
     const grounded = !!evid && ev.lines.some((l) => { const a = norm(l), b = norm(evid); return b.length >= 12 && (a.includes(b.slice(0, Math.min(60, b.length))) || b.includes(a.slice(0, Math.min(60, a.length)))); });
     const out: EksAiDiagnosis = {
-      source: 'live', summary: field(ans, 'SUMMARY') || base.summary, rootCause: rc, owner: field(ans, 'OWNER'), suggestedFix: field(ans, 'SUGGESTED_FIX'),
-      evidence: grounded ? evid : best, verdict: /^unknown/i.test(rc) ? 'UNKNOWN (the logs do not show the cause)' : grounded ? 'GROUNDED' : 'UNVERIFIED (the model quoted a line that is not in the logs: treat the root cause as a guess)',
+      source: 'live', summary: rca ? (rca.summary || base.summary) : field(ans, 'SUMMARY') || base.summary, rootCause: rc, owner: rca ? rca.owner : field(ans, 'OWNER'), suggestedFix: rca ? rca.action : field(ans, 'SUGGESTED_FIX'), action: rca?.action, acceptance: rca?.acceptance,
+      evidence: grounded ? evid : best, verdict: /^unknown/i.test(rc) || /insufficient evidence/i.test(rca?.verdict || '') ? 'UNKNOWN (the logs do not show the cause)' : grounded ? 'GROUNDED' : 'UNVERIFIED (the model quoted a line that is not in the logs: treat the root cause as a guess)',
     };
     if (grounded) { cache[ev.signature] = { summary: out.summary, rootCause: out.rootCause, owner: out.owner, suggestedFix: out.suggestedFix, verdict: 'GROUNDED', firstTool: tool, at: new Date().toISOString() }; try { fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1)); } catch { /* ignore */ } }
     return out;
