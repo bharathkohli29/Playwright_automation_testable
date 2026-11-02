@@ -61,7 +61,7 @@ export function liveEvidence(branchDir: string, tool: string): LiveEvidence | nu
     }
     // 3. what the cell services said about this tool in this run (dispatch / wait / retry decisions)
     const svc = tail(path.join(live, 'services.log'), 4000).filter((l) => l.toLowerCase().includes(tool.toLowerCase()) && (ERR.test(l) || /wait|retry|dispatch|skip/i.test(l))).slice(-4);
-    for (const l of svc) lines.push(l.replace(TS, '').replace(/\s+/g, ' ').slice(0, 260));
+    for (const l of svc) lines.push(compactServiceLine(l));
     if (svc.length) sources.push('eks-live/services.log');
     const uniq = [...new Set(lines)].slice(0, 14);
     if (!uniq.length) return null;
@@ -70,6 +70,17 @@ export function liveEvidence(branchDir: string, tool: string): LiveEvidence | nu
   } catch { return null; }
 }
 const TS = /\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\b\s*/g;
+
+/** one service log line as "time LEVEL service: message (tool_name=… reason=…)": the JSON of a service line is far longer than the cut-off, so cutting it would lose the reason */
+function compactServiceLine(l: string): string {
+  const plain = () => l.replace(TS, '').replace(/\s+/g, ' ').slice(0, 260);
+  const i = l.indexOf('{'); if (i < 0) return plain();
+  try {
+    const j = JSON.parse(l.slice(i)); const svc = (/^\[([^\]]+)\]/.exec(l) || [])[1] || '';
+    const f = ['tool_name', 'reason', 'skip_reason', 'readiness_status', 'environment_id', 'queue', 'error', 'task_id'].filter((k) => j[k] !== undefined && j[k] !== '').map((k) => `${k}=${String(j[k]).slice(0, 80)}`).join(' ');
+    return `${String(j.timestamp || '').slice(11, 19)} ${j.level || ''} ${String(j.service_name || svc).replace('cell-001-', '')}: ${j.message || ''} (${f})`.slice(0, 300);
+  } catch { return plain(); }
+}
 
 async function askModel(prompt: string, ms: number): Promise<string | null> {
   if (!(await ensureEksModel())) return null; // model missing on this PC: the caller marks NO_MODEL and still returns the real log lines
