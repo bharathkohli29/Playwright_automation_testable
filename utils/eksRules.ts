@@ -33,5 +33,20 @@ export function matchToolRules(f: ToolRuleFacts): ToolPattern | null {
   // the checker says the tool RAN although the tool matrix of this language version excludes it (observed = RAN_BUT_EXCLUDED)
   if (/RAN_BUT_EXCLUDED/i.test(f.observed || ''))
     return { id: 'ran-but-excluded', title: 'Tool ran although the matrix excludes it', rootCause: 'The tool ran (its pod was started and ended), but the tool matrix for this language version says it is not expected: the platform\'s planning scheduled a tool that should have been excluded.', owner: 'Platform (planning / tool compatibility matrix)', fix: 'Align the planning\'s compatibility entry for this tool with the expected-tool matrix of this version, or update the matrix if the tool is meant to run.' };
+  // bandit and gitleaks end with exit code 1 when they FOUND something: the pod shows "Error", the tool did its job
+  if (/^(bandit|gitleaks)$/i.test(f.tool) && (f.exitCode === 1 || /exit code 1\b/.test(f.podReason || ''))) {
+    const leaks = /leaks found:\s*(\d+)/i.exec(t)?.[1];
+    if ((/^bandit$/i.test(f.tool) && /JSON output written/i.test(t)) || (/^gitleaks$/i.test(f.tool) && leaks))
+      return { id: 'findings-exit-code', title: 'Exit code 1 means the tool reported findings', rootCause: `${f.tool} ran to the end and wrote its result${leaks ? ` (${leaks} leak(s) found)` : ''}. It ends with exit code 1 when it has findings, so the pod shows "Error" although nothing crashed. This is the tool's normal way to say "findings exist", not a platform problem.`, owner: 'None (expected behaviour); the findings belong to the repository', fix: 'Nothing to fix in the platform. Read the findings in the tool\'s result; make sure the platform treats exit code 1 of this tool as a successful run.' };
+  }
+  // pip-audit builds a temporary virtual environment first; when its pip upgrade fails it stops before auditing anything
+  if (/pip_audit[^\n]*Failed to upgrade `?pip`?/i.test(t) || /Failed to upgrade `pip`/i.test(t))
+    return { id: 'pip-audit-env-setup-failed', title: 'pip-audit could not prepare its environment', rootCause: 'pip-audit creates a temporary virtual environment and runs "pip install --upgrade pip wheel setuptools" in it. That command failed, so the tool stopped before it audited any dependency. The log does not say why pip failed; the usual causes are no access to the package index from the runner, or a temp folder the runner cannot use.', owner: 'Platform (runner network / package index access)', fix: 'Run the same pip command inside the runner pod and read pip\'s own error; give the runner access to the package index (or a mirror), then re-run.' };
+  // the runner passed an option the installed version of the tool does not know
+  const opt = /No such option:?\s*['"]?(-{1,2}[\w-]+)['"]?/i.exec(t);
+  if (opt) {
+    const usage = /Usage:\s*([^\n]+)/i.exec(t)?.[1]?.replace(/\s*\[OPTIONS\].*/i, '').trim();
+    return { id: 'unsupported-cli-option', title: 'The runner used an option the tool does not have', rootCause: `The tool printed "No such option: ${opt[1]}"${usage ? ` (usage: ${usage})` : ''}. The runner calls the tool with this option, but the version installed in the image does not accept it, so the tool stopped at once. The runner command and the tool version in the image do not match.`, owner: 'Platform (runner command vs tool version in the image)', fix: `Remove ${opt[1]} from the runner command, or install the tool version that supports it, then re-run.` };
+  }
   return matchToolPattern(f);
 }

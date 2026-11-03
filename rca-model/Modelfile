@@ -1,0 +1,7 @@
+# The RCA writer: a stock model with fixed settings. The instructions are sent with every request (utils/rcaWriter.ts), so the same prompt
+# works for any base model. Make it:   ollama create rca-writer -f rca-model/Modelfile
+# Change FROM to try another base model (the bake-off does this for you: npm run rca:bakeoff).
+FROM qwen3:4b
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER num_ctx 4096

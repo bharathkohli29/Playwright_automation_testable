@@ -15,6 +15,8 @@ import { dryRun, drySharePoint } from './dryRun';
 import { warningCount } from './warn';
 import { writeRoundSummary } from './roundSummary';
 import { recordPostStep, refreshTimingWorkbook } from './timings';
+import { writeReports, RCA_DIR } from './rcaReport';
+import { rcaModelEnabled, writeReport } from './rcaWriter';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -54,7 +56,7 @@ export async function shareBranch(branchDir: string): Promise<{ skipped: boolean
 }
 
 export async function runPostProcess(job: PostJob): Promise<boolean> {
-  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
+  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', rcareport: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
   // a short network / DNS outage must not lose the whole branch: network-type failures are retried after 30 s, 90 s and 3 min
   const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
@@ -101,6 +103,16 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   const noData = s3Failed && !eksOnly;
   if (noData) console.log(`  ${job.branch}: S3 check failed and there is no QA EKS capture of this run, so SharePoint and Teams are NOT sent (they would carry no tool data). Fix it and run: npm run post -- "${job.branchDir}"`);
   else if (s3Failed) console.log(`  ${job.branch}: S3 check failed; SharePoint and Teams go out with the root causes from the QA EKS logs only`);
+  // One RCA report per defective tool, in the folder "RCA Report" of the branch folder (uploaded to SharePoint with it, before the copy below). The local model words them
+  // (RCA_MODEL=off: the rules do); a tool the model cannot word safely gets the rule-written report. Needs the S3 result or the live EKS capture.
+  await step('rcareport', async () => {
+    if (noData) return 'skipped';
+    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined);
+    if (!rows.length) return 'skipped';
+    const m = rows.filter((r) => r.source === 'model').length; const slow = rows.find((r) => r.note);
+    console.log(`  RCA Report: ${rows.length} tool report(s), ${m} worded by the model${slow ? ` (${rows.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
+    return `${rows.length} report(s) in "${RCA_DIR}", ${m} by the model`;
+  });
   await refreshTimingWorkbook(job.branchDir).catch(() => {}); // so the copy uploaded below already has the eks / s3 / history times
   let evidenceUrl: string | undefined;
   await step('sharepoint', async () => { if (noData) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
