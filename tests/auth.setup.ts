@@ -1,5 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
 import { ensureEksSignedIn } from '../utils/eksLogin';
+import { preflightAtStart } from '../utils/preflight';
 import { TEST_ENV, loginEmail, loginPassword, authFile, baseUrl } from '../utils/env';
 
 // LOGIN_MODE=okta in .env (or $env:LOGIN_MODE="okta") signs in through "Sign in with SSO" → Okta. Default (normal / not set): the usual email + password login, unchanged.
@@ -12,6 +13,13 @@ const okta = /^okta$/i.test((process.env.LOGIN_MODE || '').trim());
 setup('QA EKS sign-in', async () => {
   setup.setTimeout(((Number(process.env.EKS_LOGIN_WAIT_MIN) || 4) + 2) * 60_000);
   await ensureEksSignedIn();
+});
+
+// Pre-flight check: what is missing (AWS keys, SharePoint sign-in, Ollama, cluster ...) and what that skips, shown before the first branch.
+// Only reports; PREFLIGHT=strict stops the run on a FAIL, PREFLIGHT=off skips it. Same check by hand: npm run preflight
+setup('pre-flight check', async () => {
+  setup.setTimeout(3 * 60_000);
+  expect(await preflightAtStart(), 'PREFLIGHT=strict: fix the FAIL lines above (or set PREFLIGHT=off)').toBe(true);
 });
 
 setup('log in', async ({ page }) => {

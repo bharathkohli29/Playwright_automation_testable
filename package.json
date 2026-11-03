@@ -13,6 +13,7 @@
     "eks:setup": "tsx utils/eksSetup.ts",
     "eks:history": "tsx utils/eksHistory.ts",
     "model:setup": "tsx utils/eksModel.ts",
+    "preflight": "tsx utils/preflight.ts",
     "status": "tsx status-dashboard/server.ts"
   },
   "dependencies": {
