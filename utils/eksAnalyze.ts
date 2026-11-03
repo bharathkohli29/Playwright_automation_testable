@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile, spawn } from 'child_process';
 import { eksReportExists, eksReportFiles } from './eksMentor';
+import { ollamaUrl, isLocalOllama } from './ollamaHost';
 
 /**
  * Copies the QA EKS analysis reports (Analysis_Report_<tool>-<run>.pdf and <tool>-<run>.md) of the defective tools into the branch folder
@@ -47,7 +48,7 @@ export function eksAutoEnabled(): boolean {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const ollamaUp = () => fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false);
+const ollamaUp = () => fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false);
 const installerRunning = async () => process.platform === 'win32' && /OllamaSetup/i.test((await run('tasklist', ['/FI', 'IMAGENAME eq OllamaSetup.exe', '/NH'], 15_000)).out);
 
 /**
@@ -57,6 +58,8 @@ const installerRunning = async () => process.platform === 'win32' && /OllamaSetu
 export async function ensureOllama(say: (m: string) => void): Promise<boolean> {
   try {
     if (await ollamaUp()) return true;
+    // a SHARED model server (OLLAMA_HOST=http://<other PC>:11434): nothing to start on this PC, it either answers or it does not
+    if (!isLocalOllama()) { say(`the shared Ollama at ${ollamaUrl()} does not answer (is that PC on, Ollama running, port 11434 open?): the reports use rule-based summaries`); return false; }
     if (await installerRunning()) {
       say('Ollama is installing an update, waiting for it to finish (up to 6 min) ...');
       for (let i = 0; i < 72 && (await installerRunning()); i++) await sleep(5000);

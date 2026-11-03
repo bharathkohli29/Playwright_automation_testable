@@ -149,6 +149,20 @@ def analyze(run_id, tool, on_run, other_runs, earliest):
     return r
 
 
+def ollama_url():
+    """the model server: this PC by default, a shared PC with OLLAMA_HOST=http://<host>:11434 (same rules as utils/ollamaHost.ts)"""
+    v = os.environ.get("OLLAMA_HOST", "").strip().strip("\"'").rstrip("/")
+    if not v:
+        return "http://localhost:11434"
+    if not re.match(r"^https?://", v, re.I):
+        v = "http://" + v
+    m = re.match(r"^(https?)://(\[[^\]]+\]|[^/:]+)(?::(\d+))?", v, re.I)
+    if not m:
+        return "http://localhost:11434"
+    host = "localhost" if m.group(2) in ("0.0.0.0", "") else m.group(2)
+    return f"{m.group(1).lower()}://{host}:{m.group(3) or '11434'}"
+
+
 def llm_summary(model, r):
     facts = {k: r[k] for k in ("tool", "run_id", "verdict", "confidence", "cause", "owner")}
     prompt = ("Write a 2-3 sentence plain-English summary of this QA finding for an engineering lead. Use only these facts, "
@@ -156,7 +170,7 @@ def llm_summary(model, r):
     body = {"model": model, "stream": False, "think": False, "options": {"temperature": 0.1, "num_ctx": 2048, "num_predict": 160},
             "messages": [{"role": "user", "content": prompt}]}
     try:
-        req = urllib.request.Request("http://localhost:11434/api/chat", json.dumps(body).encode(), {"Content-Type": "application/json"})
+        req = urllib.request.Request(ollama_url() + "/api/chat", json.dumps(body).encode(), {"Content-Type": "application/json"})
         text = json.load(urllib.request.urlopen(req, timeout=600))["message"]["content"].strip()
     except Exception:
         return None

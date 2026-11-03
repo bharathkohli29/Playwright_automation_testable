@@ -9,6 +9,7 @@ import { hasAwsCredentials } from './s3Evidence';
 import { sessionSaved, sessionFileRequest } from './sharepointSession';
 import { teamsEnabled } from './teams';
 import { eksAutoEnabled, eksClusterReady } from './eksAnalyze';
+import { isLocalOllama, ollamaModels, ollamaUrl } from './ollamaHost';
 
 /**
  * Pre-flight check, run once before the first branch (npm test) or by hand (npm run preflight): looks at everything the run and its post-processing
@@ -65,8 +66,17 @@ function checkTeams(): Check {
 
 async function checkOllama(): Promise<Check> {
   if (!eksAutoEnabled()) return { name: 'Ollama model', level: 'WARN', message: 'EKS_AUTO is off', effect: 'no QA EKS analysis and no model text in the bug drafts', fix: 'set EKS_AUTO=on in .env' };
+  let want0 = clean(process.env.OLLAMA_QA_MODEL) || 'qa-eks-mentor-trained';
+  try { want0 = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'qa-eks-mentor', 'model.json'), 'utf8').replace(/^﻿/, '')).name || want0; } catch { /* default */ }
+  if (!isLocalOllama()) { // a SHARED model server: nothing is installed on this PC, only the server and its model are checked
+    const names = await ollamaModels();
+    if (!names) return { name: 'Ollama model', level: 'WARN', message: `the shared Ollama at ${ollamaUrl()} does not answer`, effect: 'no model text: the reports use the rules and the log lines only', fix: 'check that the host PC is on and Ollama runs there, that port 11434 is open to your PC, and the address in OLLAMA_HOST' };
+    return names.some((t) => t === want0 || t === `${want0}:latest`)
+      ? { name: 'Ollama model', level: 'OK', message: `shared Ollama at ${ollamaUrl()} is up, model ${want0} is registered there (nothing to install on this PC)` }
+      : { name: 'Ollama model', level: 'WARN', message: `shared Ollama at ${ollamaUrl()} is up but does not have the model ${want0}`, effect: 'no model text until the host has it', fix: 'the PC that hosts Ollama runs  npm run model:setup  (or ask the QA lead)' };
+  }
   let tags: string[] = [];
-  try { const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) }); tags = ((await r.json()) as any).models?.map((m: any) => String(m.name)) || []; }
+  try { const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) }); tags = ((await r.json()) as any).models?.map((m: any) => String(m.name)) || []; }
   catch {
     const v = spawnSync(clean(process.env.EKS_OLLAMA) || 'ollama', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32', timeout: 15_000, windowsHide: true });
     return v.status === 0

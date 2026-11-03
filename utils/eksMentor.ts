@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { liveDiagnosis } from './eksDiagnose';
 import { ensureEksModel } from './eksModel';
+import { ollamaUrl } from './ollamaHost';
 
 export interface EksAiDiagnosis {
   summary?: string;
@@ -18,7 +19,7 @@ export interface EksAiDiagnosis {
   source?: 'report' | 'model' | 'live';
 }
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+const OLLAMA_HOST = ollamaUrl();
 const MODEL_NAME = process.env.OLLAMA_QA_MODEL || 'qa-eks-mentor-trained:latest';
 // folders whose reports\ holds the ready analyze.py reports (<tool>-<first 8 chars of the run id>.md): EKS_MENTOR_DIR, the project's own qa-eks-mentor\ (where analyze.py writes)
 const MENTOR_DIRS = [process.env.EKS_MENTOR_DIR, path.join(__dirname, '..', 'qa-eks-mentor')].filter((d): d is string => !!d);

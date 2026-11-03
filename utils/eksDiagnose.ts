@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { parseReportMarkdown, type EksAiDiagnosis } from './eksMentor';
 import { ensureEksModel } from './eksModel';
+import { ollamaUrl } from './ollamaHost';
 import { matchToolPattern } from './eksPatterns';
 
 /**
@@ -14,7 +15,7 @@ import { matchToolPattern } from './eksPatterns';
  *  - No log lines = no diagnosis (null): nothing is guessed. Model offline = the log lines are still returned, marked NO_MODEL.
  * Never throws.
  */
-const OLLAMA_HOST = () => process.env.OLLAMA_HOST || 'http://localhost:11434';
+const OLLAMA_HOST = () => ollamaUrl();
 const MODEL = () => process.env.OLLAMA_QA_MODEL || 'qa-eks-mentor-trained:latest';
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const ERR = /error|exception|traceback|denied|fatal|fail|oom|killed|timeout|timed out|no such file|cannot|refused|unavailable|not found|panic|exit code|backoff|evicted|permission/i;
