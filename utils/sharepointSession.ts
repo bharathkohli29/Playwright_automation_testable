@@ -112,7 +112,12 @@ export async function uploadBranchSession(branchFolder: string): Promise<{ url: 
   try {
     const day = dayFolderName();
     await s.makeFolder([day]);
-    const name = await chooseFolderName('session', day, branchFolder, (n) => s.folderExists([day, n]));
+    // a folder of this day that already holds THIS run (same run_id in its run-details.json, e.g. uploaded from another PC or folder) is reused
+    const localRun = (() => { try { return String(JSON.parse(fs.readFileSync(path.join(branchFolder, 'run-details.json'), 'utf8')).run_id || ''); } catch { return ''; } })();
+    const sameRun = localRun ? async (n: string) => {
+      try { const r = sessionFileRequest([day, n, 'run-details.json']); const res = await fetch(r.url, { headers: r.headers, redirect: 'manual', signal: AbortSignal.timeout(20_000) }); return res.ok && JSON.parse(await res.text()).run_id === localRun; } catch { return false; }
+    } : undefined;
+    const name = await chooseFolderName('session', day, branchFolder, (n) => s.folderExists([day, n]), sameRun);
     const files = listFiles(branchFolder);
     const dirs = new Set<string>(); for (const f of files) for (let i = 1; i < f.length; i++) dirs.add(f.slice(0, i).join('/'));
     await s.makeFolder([day, name]);

@@ -16,7 +16,7 @@ const safe = (s: string) => s.replace(/[^\w.-]+/g, '_').slice(0, 80);
 const one = (s?: string, n = 400) => (s || '-').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** tool -> status for every tool a WARNING / ERROR service line names as rejected, blocked or failed (tool_name=... in the JSON of the line) */
-function serviceProblems(file: string): Map<string, string> {
+export function serviceProblems(file: string): Map<string, string> {
   const out = new Map<string, string>();
   let text = ''; try { text = fs.readFileSync(file, 'utf8'); } catch { return out; }
   for (const l of text.split(/\r?\n/)) {

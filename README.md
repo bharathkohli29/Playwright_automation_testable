@@ -37,7 +37,11 @@ npm install
 npx playwright install chromium
 cp .env.example .env      # PowerShell: Copy-Item .env.example .env, then fill it in (see below)
 npm run sp:login          # once: sign in to SharePoint with your Microsoft work account
+npm run model:setup       # once per PC (needs Ollama installed): downloads and registers the QA EKS model from SharePoint
+npm run preflight         # shows what is missing (AWS keys, sign-ins, Ollama, cluster) and what it would skip, before you start
 ```
+
+What you do by hand: pull the branch, put the branch links in `builds.json`, fill `.env` (AWS keys, Teams webhook, Testable login), run `npm run sp:login` once, install Ollama once, and start `npm test`. Everything after that is automatic. The AWS keys expire after a few hours: paste fresh ones before a long run.
 
 Run branches (PowerShell):
 
@@ -58,6 +62,10 @@ When the last test, **Background post-processing finishes**, turns green, everyt
 | `npm run setup` | Only the Testable login (checks your credentials) |
 | `npm run sp:login` | One-time SharePoint sign-in |
 | `npm run post -- "<branch folder>" --repo owner/name` | Redo S3 check, bug drafts, SharePoint and Teams for one finished branch (after a network problem or expired keys) |
+| `npm run post -- "<branch folder>" --dry-run` | Same, but nothing is uploaded or sent: prints the SharePoint copy and the Teams card (also `POST_DRYRUN=1`) |
+| `npm run preflight` | Checks the setup (branch list, logins, AWS keys, SharePoint, Teams, Ollama, cluster); also runs at the start of `npm test` (`PREFLIGHT=strict` stops on a FAIL) |
+| `npm run model:setup` / `npm run eks:setup` | Install the QA EKS model on this PC / check kubectl, AWS sign-in and IP for the cluster |
+| `npm run check` | Type check and unit tests (`npm run typecheck`, `npm run test:unit`); the same runs on GitHub for every push |
 | `npm run s3` | Old way: re-check S3 for a results folder (`S3_RESULTS_DIR`, `S3_FORCE=1`) |
 | `npm run status` | Read-only status page on `http://localhost:3100` (`STATUS_PORT` changes it): every branch of a run with its state and browser step (1-15), the background worker steps (S3, history, SharePoint, Teams), the worker log and a health strip (site, AWS keys, Ollama, SharePoint sign-in, Teams, QA EKS). Start it in a second terminal; it never starts or changes a run |
 | `npm run queue` | Optional team branch queue (page on `http://localhost:3000`) |
@@ -145,6 +153,8 @@ A small local model (`qa-eks-mentor-trained`, Qwen2.5 3B served by Ollama) expla
 **When it is skipped (one line in the log, the run continues):** no EKS key or sign-in, `kubectl`/`aws` not on the PATH, the cluster not reachable from this PC (network / VPN), or the 8-minute limit (`EKS_ANALYZE_MIN`) reached. If the cluster was recreated with a new address, the saved kubectl context `qa-eks-ro` is refreshed from AWS automatically (needs the EKS key; with a sign-in profile run `aws eks update-kubeconfig --name qa-eks --region us-east-2 --alias qa-eks-ro` once).
 
 **Pre-flight check (`npm run preflight`, also the second step of `npm test`):** before the first branch the script checks the branch list, the platform login, the AWS S3 keys (a real read), the SharePoint sign-in, the Teams webhook, Ollama and the model, and the EKS cluster. It prints OK / WARN / FAIL per line with the effect (what will be skipped) and the fix, and saves `preflight.json` in the round folder. It changes nothing and only reports; `PREFLIGHT=strict` stops the run on a FAIL, `PREFLIGHT=off` skips it.
+
+**No duplicates, and what a round leaves behind:** a SharePoint folder of the same day that already holds the same run (same `run_id` in its `run-details.json`) is reused instead of making `_RUN2`, `_RUN3`. A complete Teams card (with the S3 result) is sent once per run; `TEAMS_RESEND=1` sends it again, and a partial card (S3 failed) is replaced by the full one. When S3 fails now, an older `s3-check.json` of that folder is kept aside as `s3-check.previous.json`. Problems that must not stop a run are written to `warnings.log` in the branch folder instead of being swallowed. `<round folder>/summary.md` holds one row per branch (language, tools, defects, post-processing steps) and is rebuilt after every branch.
 
 **Dry run (`POST_DRYRUN=1` in `.env`, or `npm run post -- "<branch folder>" --dry-run`):** the post-processing does everything that only reads (EKS logs, S3 check, model, bug drafts, SharePoint history) but does not upload to SharePoint and does not send to Teams. It prints what would be copied (files, MB, target folder) and what the Teams card would contain (text, buttons, size against the 28 KB webhook limit) and saves the full card in `<round folder>/dryrun/`. Use it to test a new `.env` without filling the team's channel. It does not cover the test run itself (`DUMMY_PR=yes` still pushes a commit).
 

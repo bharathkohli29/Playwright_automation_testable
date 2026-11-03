@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { warn } from './warn';
 import { execFile, spawn, ChildProcess } from 'child_process';
 import { eksAutoEnabled, eksEnv } from './eksAnalyze';
 import { matchRunPattern, RunPattern } from './eksPatterns';
@@ -143,8 +144,8 @@ export function startEksCollector(opts: { branchDir: string; runId: string; bran
         child.stdout?.on('data', feed); child.stderr?.on('data', feed);
         child.on('error', () => { children.delete(child); });
         child.on('close', async () => {
-          children.delete(child); if (buf) { try { onLine(buf); } catch { /* ignore */ } }
-          if (onEnd) { try { await onEnd(); } catch { /* ignore */ } } // tool pods: read the final state right now, before the pod is deleted
+          children.delete(child); if (buf) { try { onLine(buf); } catch (e) { warn(opts.branchDir, 'collector: last log line', e); } }
+          if (onEnd) { try { await onEnd(); } catch (e) { warn(opts.branchDir, 'collector: final pod state', e); } } // tool pods: read the final state right now, before the pod is deleted
           const rec = pods.get(key);
           if (Date.now() - connectedAt > 60_000) tries = 0; // a stream that lived a minute counts as healthy
           if (!stopped && tries < 6 && !(rec && rec.gone) && !(rec && /Succeeded|Failed/.test(rec.phase || ''))) { tries++; if (last && gaps.length < 30) gaps.push(`${label}: log stream ended, reconnected from ${last}`); setTimeout(go, 2000); }
@@ -229,7 +230,7 @@ export function startEksCollector(opts: { branchDir: string; runId: string; bran
             out.write(redact(line) + '\n'); r2.consoleLines++;
           }, name, async () => {
             const g = await kc(['get', 'pod', name, '-n', ns, '-o', 'json', '--request-timeout=10s'], 20_000);
-            if (g.code === 0) { try { const pj = JSON.parse(g.out); updateRec(r2, pj); fs.writeFileSync(path.join(pd, 'pod.json'), redactJson(pj)); } catch { /* ignore */ } } else r2.gone = true;
+            if (g.code === 0) { try { const pj = JSON.parse(g.out); updateRec(r2, pj); fs.writeFileSync(path.join(pd, 'pod.json'), redactJson(pj)); } catch (e) { warn(opts.branchDir, 'collector: pod.json', e); /* ignore */ } } else r2.gone = true;
           });
         }
         if (rec.otherRun) continue;
@@ -257,7 +258,7 @@ export function startEksCollector(opts: { branchDir: string; runId: string; bran
           const rt = (JSON.parse(r.out).items || []).filter((d: any) => /runtime|worker|orchestrator/.test(d.metadata?.name || '')).map((d: any) => ({ name: d.metadata.name, desired: d.spec?.replicas ?? 0, ready: d.status?.readyReplicas ?? 0 }));
           snapshotsLog.write(JSON.stringify({ at: new Date().toISOString(), ns, deployments: rt }) + '\n');
           for (const d of rt) if (d.desired === 0 && d.ready === 0 && /runtime|worker/.test(d.name)) scaledZero.add(d.name); else scaledZero.delete(d.name);
-        } catch { /* ignore */ }
+        } catch (e) { warn(opts.branchDir, 'collector: deployment snapshot', e); }
       }
     };
 

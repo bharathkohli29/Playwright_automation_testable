@@ -12,6 +12,8 @@ import { attachPreviousFromSharePoint } from './sharepointHistory';
 import { fetchEksLive } from './eksFetch';
 import { writeEksOnlyRca } from './eksOnlyRca';
 import { dryRun, drySharePoint } from './dryRun';
+import { warningCount } from './warn';
+import { writeRoundSummary } from './roundSummary';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -81,6 +83,8 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   });
   // the earlier run of this branch for the Tool Trigger Log, read from the team's SharePoint folder (not from this PC); saved in the branch folder so it uploads with it
   await step('history', async () => { const r = await attachPreviousFromSharePoint(job.branchDir); return r === 'skipped' ? 'skipped' : r; });
+  // An s3-check.json left by an EARLIER attempt of this folder would show old tool results under a "S3 not available" card: keep it aside.
+  if (st.steps.s3 === 'failed') { try { const f = path.join(job.branchDir, 's3-check.json'); if (fs.existsSync(f)) { fs.renameSync(f, path.join(job.branchDir, 's3-check.previous.json')); console.log('  an older s3-check.json was kept as s3-check.previous.json (it is not the result of this attempt)'); } } catch { /* ignore */ } }
   // A failed S3 step has two cases. With the run's live QA EKS capture (eks-live) the root causes are still written from it by the model, and the
   // copy and the Teams card go out with them (without S3 tool results; the card says so). Without eks-live the folder and the card would carry no
   // tool data at all, only an empty "success", so both are skipped: fix the cause (usually expired AWS keys in .env) and run  npm run post -- "<branch folder>"  again.
@@ -98,6 +102,14 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   await step('sharepoint', async () => { if (noData) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
   await step('teams', async () => {
     if (noData || (!teamsEnabled() && !dryRun())) return 'skipped';
+    // the same run must not fill the channel twice: when a COMPLETE card (S3 result included) was already sent for this run id, a second one is skipped
+    // (TEAMS_RESEND=1 sends it anyway); a card that was partial (S3 failed, EKS logs only) is replaced by the full one
+    const runId = (() => { try { return String(JSON.parse(fs.readFileSync(path.join(job.branchDir, 'run-details.json'), 'utf8')).run_id || ''); } catch { return ''; } })();
+    const sentFile = path.join(job.branchDir, 'teams-sent.json');
+    const before = (() => { try { return JSON.parse(fs.readFileSync(sentFile, 'utf8')); } catch { return null; } })();
+    if (!dryRun() && runId && before?.run_id === runId && before.complete && !/^(1|yes|on|true)$/i.test((process.env.TEAMS_RESEND || '').trim())) {
+      console.log(`  Teams: a complete card for run ${runId.slice(0, 8)} was already sent at ${before.at}; not sent again (TEAMS_RESEND=1 sends it anyway)`); return 'skipped';
+    }
     // notifyTeams does not use the page; a passed branch never needs a screenshot
     const sent = await notifyTeams(undefined as unknown as Page, {
       branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
@@ -105,10 +117,13 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
       ...(eksOnly ? { headline: `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
     });
     if (!sent) throw new Error('Teams message could not be sent (network)');
+    if (!dryRun() && runId) { try { fs.writeFileSync(sentFile, JSON.stringify({ run_id: runId, at: new Date().toISOString(), complete: !s3Failed }, null, 1)); } catch { /* ignore */ } }
   });
 
+  const nWarn = warningCount(job.branchDir); if (nWarn) { st.detail.warnings = `${nWarn} warning(s) in warnings.log`; console.log(`  ${nWarn} warning(s) were written to ${path.join(job.branchDir, 'warnings.log')}`); }
   const failed = Object.values(st.steps).includes('failed');
   st.state = failed ? 'failed' : 'done'; save();
+  writeRoundSummary(job.branchDir); // <round folder>/summary.md: one row per branch
   console.log(`=== Post-processing ${job.branch}: ${st.state} (${Object.entries(st.steps).map(([k, v]) => `${k} ${v}`).join(', ')}) ===`);
   return !failed;
 }

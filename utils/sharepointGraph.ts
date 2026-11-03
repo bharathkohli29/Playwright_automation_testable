@@ -119,14 +119,14 @@ async function exists(r: Resolved, segs: string[]): Promise<boolean> {
 }
 
 /** Same naming rule as the OneDrive copy: <branch>, then <branch>_RUN2 … ; remembered per local folder so a re-copy gives the same name. */
-export async function chooseFolderName(tag: string, day: string, branchFolder: string, taken: (name: string) => Promise<boolean>): Promise<string> {
+export async function chooseFolderName(tag: string, day: string, branchFolder: string, taken: (name: string) => Promise<boolean>, sameRun?: (name: string) => Promise<boolean>): Promise<string> {
   const base = path.basename(branchFolder);
   const mapFile = path.join(path.dirname(path.dirname(branchFolder)), '.sharepoint-graph-map.json');
   const key = `${tag}|${day}|${path.resolve(branchFolder)}`;
   let map: Record<string, string> = {}; try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* none yet */ }
   if (map[key]) return map[key];
   let name = base; let n = 1;
-  while (await taken(name)) { n++; name = `${base}_RUN${n}`; if (n > 50) throw new Error(`SharePoint: more than 50 runs of ${base} in one day folder — check the folder`); }
+  while (await taken(name)) { if (sameRun && (await sameRun(name))) break; /* the folder already holds THIS run: reuse it, no _RUNn duplicate */ n++; name = `${base}_RUN${n}`; if (n > 50) throw new Error(`SharePoint: more than 50 runs of ${base} in one day folder — check the folder`); }
   // read the file again just before writing: another lane's worker (two accounts) may have added an entry while we were checking SharePoint
   try { let cur: Record<string, string> = {}; try { cur = JSON.parse(fs.readFileSync(mapFile, 'utf8')); } catch { /* none yet */ } cur[key] = name; fs.writeFileSync(mapFile, JSON.stringify(cur, null, 1)); } catch { /* ignore */ }
   return name;

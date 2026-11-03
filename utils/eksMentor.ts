@@ -20,8 +20,8 @@ export interface EksAiDiagnosis {
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const MODEL_NAME = process.env.OLLAMA_QA_MODEL || 'qa-eks-mentor-trained:latest';
-// folders whose reports\ holds the ready analyze.py reports (<tool>-<first 8 chars of the run id>.md): EKS_MENTOR_DIR, the project's own qa-eks-mentor\ (where analyze.py writes), and the old F:\Ollama\mentor
-const MENTOR_DIRS = [process.env.EKS_MENTOR_DIR, path.join(__dirname, '..', 'qa-eks-mentor'), 'F:\\Ollama\\mentor'].filter((d): d is string => !!d);
+// folders whose reports\ holds the ready analyze.py reports (<tool>-<first 8 chars of the run id>.md): EKS_MENTOR_DIR, the project's own qa-eks-mentor\ (where analyze.py writes)
+const MENTOR_DIRS = [process.env.EKS_MENTOR_DIR, path.join(__dirname, '..', 'qa-eks-mentor')].filter((d): d is string => !!d);
 
 function reportPaths(tool: string, runId: string): string[] {
   const short = runId.split('-')[0];
@@ -90,6 +90,10 @@ export function parseReportMarkdown(md: string): EksAiDiagnosis {
     if (evidenceRcaM) {
       const lines = evidenceRcaM[1].trim().split('\n').map((l) => l.replace(/^-\s*/, '').trim()).filter(Boolean);
       diag.evidence = lines.join('; ');
+    } else {
+      // the model may also answer "Evidence: <one line>" on the same line (the trained format is the bullet list)
+      const inline = md.match(/^Evidence:[ \t]*([^\n]+)/im);
+      if (inline) diag.evidence = inline[1].trim();
     }
     if (ownerRcaM) diag.owner = ownerRcaM[1].trim();
     if (actionRcaM) {

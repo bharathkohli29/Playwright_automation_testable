@@ -2,6 +2,7 @@
   "name": "testable-merge-flow",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=20" },
   "scripts": {
     "test": "playwright test",
     "setup": "playwright test tests/auth.setup.ts",
@@ -14,6 +15,9 @@
     "eks:history": "tsx utils/eksHistory.ts",
     "model:setup": "tsx utils/eksModel.ts",
     "preflight": "tsx utils/preflight.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test:unit": "node --import tsx --test unit/logic.test.ts",
+    "check": "npm run typecheck && npm run test:unit",
     "status": "tsx status-dashboard/server.ts"
   },
   "dependencies": {
