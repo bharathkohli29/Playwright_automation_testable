@@ -74,16 +74,28 @@ async function ask(host: string, model: string, user: string, ms: number): Promi
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '').slice(0, max);
 
+/**
+ * The exact prompt the model gets for one tool (also what the training data is made of: facts in, report out).
+ * A small model keeps cutting "3.12" to "3.1", so it never sees the version: the facts say <V> and the answer is filled in with the real one.
+ */
+export function promptFor(p: FactPack, base: RcaReport): { system: string; facts: string; user: string; ver: RegExp | null } {
+  const facts = factsText(p, base);
+  const ver = p.version ? new RegExp("(?<![\\w.])" + esc(p.version) + "(?![\\w])", 'g') : null;
+  const shown = ver ? `${facts.replace(ver, '<V>')}
+(Write <V> exactly where the version belongs; never write a number for it.)` : `${facts}
+(No language version is known for this run: do not write any version number.)`;
+  return { system: SYSTEM, facts, user: `${shown}
+
+Write the report for ${p.tool} now.`, ver };
+}
+
 export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promise<WriterResult> {
   const base = reportFromRules(p);
   if (!p.hasEvidence && !p.classification) return { report: base, used: 'rules', note: 'no evidence: nothing for the model to word' };
   const model = opts.model || MODEL(); const t0 = Date.now();
   try {
-    const facts = factsText(p, base);
-    // A small model keeps cutting "3.12" to "3.1": it never sees the version. The facts say <V> and the answer is filled in here with the real one.
-    const ver = p.version ? new RegExp(`(?<![\\w.])${esc(p.version)}(?![\\w])`, 'g') : null;
-    const shown = ver ? `${facts.replace(ver, '<V>')}\n(Write <V> exactly where the version belongs; never write a number for it.)` : `${facts}\n(No language version is known for this run: do not write any version number.)`;
-    const raw = await ask((opts.host || HOST()).replace(/\/+$/, ''), model, `${shown}\n\nWrite the report for ${p.tool} now.`, (opts.timeoutSec ?? (Number(process.env.RCA_MODEL_SEC) || 120)) * 1000);
+    const { facts, user, ver } = promptFor(p, base);
+    const raw = await ask((opts.host || HOST()).replace(/\/+$/, ''), model, user, (opts.timeoutSec ?? (Number(process.env.RCA_MODEL_SEC) || 120)) * 1000);
     let j: any; try { j = JSON.parse(ver ? raw.split('<V>').join(p.version) : raw); } catch { throw new Error('the answer was not valid JSON'); }
     const what = (Array.isArray(j.whatHappened) ? j.whatHappened : []).map((x: unknown) => str(x, 300)).filter(Boolean).slice(0, 4);
     const r = { oneLine: str(j.oneLine, 220), why: str(j.why, 700), impact: str(j.impact, 400), fix: str(j.fix, 400) };
