@@ -1,5 +1,6 @@
 import { FactPack } from './rcaFacts';
 import { RcaReport, reportFromRules } from './rcaReport';
+import { dur, ist } from './rcaProfile';
 
 /**
  * The RCA WRITER: a local Ollama model that rewords ONE tool's rule-written report in plain English.
@@ -22,7 +23,7 @@ const SYSTEM = [
   'Use ONLY the facts you are given. Never invent file names, paths, ids, numbers, commands, options or causes.',
   'If the facts do not show the cause, say so plainly: "the log does not show why". Do not add reasons, requirements or versions that are not written in the facts. Copy versions exactly (Python 3.12 stays 3.12).',
   'If a KNOWN CAUSE is given, it was found by a rule and is correct: explain exactly that cause in simpler words and do not change its meaning.',
-  'Write short, plain sentences. Explain a technical term in a few words the first time you use it. No markdown, no lists inside a field.',
+  'Write short, plain sentences without contractions (write "did not", never the short form). Explain a technical term in a few words the first time you use it. No markdown, no lists inside a field.',
   'Answer with JSON only, with these fields: oneLine (at most 25 words), whatHappened (array of 2 to 4 short sentences), why (2 to 3 sentences), impact (1 to 2 sentences), fix (1 to 2 concrete sentences).',
 ].join('\n');
 
@@ -37,12 +38,13 @@ export function factsText(p: FactPack, base: RcaReport): string {
   if (p.classification) out.push(`S3 RESULT: ${p.classification} ${p.observed}: ${p.s3Note}`);
   if (p.attempts.length) out.push('POD ATTEMPTS:', ...p.attempts.map((a, i) => `${i + 1}. ${a.phase}, exit code ${a.exitCode ?? '?'}, command "${a.command}"`));
   else out.push('POD ATTEMPTS: none seen');
+  const f = p.profile; if (f.firstStart || f.seconds.queueWait != null) out.push(`TIMING: started ${f.firstStart ? ist(f.firstStart) : 'unknown'}, finished ${f.lastEnd ? ist(f.lastEnd) : 'unknown'}, ran for ${dur(f.seconds.task ?? f.seconds.pods)}, waited in the queue ${dur(f.seconds.queueWait)}`);
   if (p.decisive?.lines.length) out.push('LOG LINES OF THE FAILED POD:', ...p.decisive.lines.map((l) => `- ${l}`));
   const sv = p.serviceLines.filter((s) => s.sameTask || !p.decisive); if (sv.length) out.push('SERVICE LINES OF THIS TASK:', ...sv.map((s) => `- ${s.text}`));
   if (p.failureJson.length) out.push('FAILURE.JSON:', ...p.failureJson.map((l) => `- ${l}`));
   if (p.rule) out.push(`KNOWN CAUSE (by a rule, correct): ${p.rule.rootCause}`, `KNOWN FIX: ${p.rule.fix}`);
   else out.push('KNOWN CAUSE: none (no rule matches).', `RULE-BASED READING (word it, and say where it is inferred or unknown): ${base.why}`, `FIX TO SUGGEST: ${base.fix}`);
-  out.push(`IMPACT BASE: ${base.impact}`);
+  out.push(`IMPACT BASE: ${base.impact}`, `STATE OF THE TOOL: ${base.state}`);
   return out.join('\n');
 }
 
@@ -80,7 +82,7 @@ export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promis
     const facts = factsText(p, base);
     // A small model keeps cutting "3.12" to "3.1": it never sees the version. The facts say <V> and the answer is filled in here with the real one.
     const ver = p.version ? new RegExp(`(?<![\\w.])${esc(p.version)}(?![\\w])`, 'g') : null;
-    const shown = ver ? `${facts.replace(ver, '<V>')}\n(Write <V> exactly where the version belongs; never write a number for it.)` : facts;
+    const shown = ver ? `${facts.replace(ver, '<V>')}\n(Write <V> exactly where the version belongs; never write a number for it.)` : `${facts}\n(No language version is known for this run: do not write any version number.)`;
     const raw = await ask((opts.host || HOST()).replace(/\/+$/, ''), model, `${shown}\n\nWrite the report for ${p.tool} now.`, (opts.timeoutSec ?? (Number(process.env.RCA_MODEL_SEC) || 120)) * 1000);
     let j: any; try { j = JSON.parse(ver ? raw.split('<V>').join(p.version) : raw); } catch { throw new Error('the answer was not valid JSON'); }
     const what = (Array.isArray(j.whatHappened) ? j.whatHappened : []).map((x: unknown) => str(x, 300)).filter(Boolean).slice(0, 4);

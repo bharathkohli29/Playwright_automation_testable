@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { buildFactPack, defectiveTools } from '../utils/rcaFacts';
-import { reportFromRules, renderMarkdown, writeReports } from '../utils/rcaReport';
+import { buildFactPack, defectiveTools, allTools } from '../utils/rcaFacts';
+import { reportFromRules, reportHtml, writeReports } from '../utils/rcaReport';
 
 /** a branch folder with an eks-live capture: pods = [{tool, task, phase, exit, console lines}] and the service log lines */
 function branch(pods: { tool: string; task: string; phase: string; exit: number; lines: string[] }[], services: string[] = [], extra: Record<string, unknown> = {}) {
@@ -53,12 +53,49 @@ test('a tool with no log line gets an honest report; a planning defect is marked
   const gh = reportFromRules(buildFactPack(d, 'ghost')); assert.match(gh.why, /no log lines/i); assert.equal(gh.evidence, '(none)');
 });
 
-test('one file per defective tool plus index.json; the file holds the 7 parts', async () => {
+test('one PDF per tool in Triggered / Not triggered, rebuilt each time; the page holds every part and no other tool', async () => {
   const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
+  fs.mkdirSync(path.join(d, 'RCA Report'), { recursive: true }); fs.writeFileSync(path.join(d, 'RCA Report', 'RCA_old.md'), 'left by an earlier attempt');
   const rows = await writeReports(d);
-  assert.deepEqual(rows.map((r) => r.file).sort(), ['RCA_gitleaks.md', 'RCA_pip-audit.md']);
-  const md = fs.readFileSync(path.join(d, 'RCA Report', 'RCA_pip-audit.md'), 'utf8');
-  for (const h of ['In one sentence', 'What happened', 'Why', 'Evidence', 'Impact', 'Who fixes it', 'What to do', 'Confidence']) assert.match(md, new RegExp(`## ${h}`));
-  assert.ok(fs.existsSync(path.join(d, 'RCA Report', 'index.json')));
-  assert.doesNotMatch(renderMarkdown(reportFromRules(buildFactPack(d, 'gitleaks')), buildFactPack(d, 'gitleaks')), /pip-audit/); // no other tool leaks into this report
+  assert.deepEqual(rows.map((r) => r.file).sort(), ['Triggered/RCA_gitleaks.pdf', 'Triggered/RCA_pip-audit.pdf']);
+  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).sort(), ['Triggered', 'index.json']); // the old file is gone
+  for (const f of rows.map((r) => path.join(d, 'RCA Report', r.file))) { const b = fs.readFileSync(f); assert.equal(b.subarray(0, 5).toString(), '%PDF-'); assert.ok(b.length > 4000); }
+  const p = buildFactPack(d, 'pip-audit'); const html = reportHtml(reportFromRules(p), p);
+  for (const h of ['What happened', 'Why', 'Evidence', 'Impact', 'Who fixes it', 'What to do', 'Confidence', 'Tool profile']) assert.match(html, new RegExp(h));
+  assert.doesNotMatch(html, /gitleaks/); // no other tool leaks into this report
+  assert.match(reportHtml({ ...reportFromRules(p), evidence: '<script>x</script>' }, p), /&lt;script&gt;/); // text from logs is escaped
+});
+
+test('green layout for a triggered tool that is fine, red for the others; not triggered tools go to their own folder; only red ones reach the writer', async () => {
+  const d = branch([{ tool: 'radon', task: 'r', phase: 'Succeeded', exit: 0, lines: ['done'] }], [], {
+    's3-check.json': { run_id: 'r1', branch: 'PY_X', python: { version: '3.12', defects: [{ tool: 'flake8', tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: 'flake8 is expected but was not triggered' }],
+      tools: [{ tool: 'radon', state: 'NOT_TRIGGERED', note: 'No S3 folder' }, { tool: 'radon', state: 'OUTPUT', note: 'cc for 14 file(s)' }, { tool: 'flake8', state: 'NOT_TRIGGERED', note: 'No S3 folder' }] },
+      checks: [{ tool: 'radon', testingType: 'Static', technique: 'Complexity', classifications: [], result: 'PASS', note: 'cc for 14 file(s), 95 block(s)', files: ['radon/a/0/radon.json'] }] },
+    's3-folders.json': { 'radon/': ['a/0/radon.json'] } });
+  assert.deepEqual(allTools(d).sort(), ['flake8', 'radon']);
+  const green = buildFactPack(d, 'radon'); const red = buildFactPack(d, 'flake8');
+  assert.equal(green.triggered, true); assert.equal(green.healthy, true); assert.equal(red.triggered, false); assert.equal(red.healthy, false);
+  const g = reportFromRules(green); const r = reportFromRules(red);
+  assert.equal(g.tone, 'green'); assert.equal(g.state, 'TRIGGERED · RESULT OK'); assert.match(g.evidence, /cc for 14 file/); assert.equal(r.tone, 'red'); assert.equal(r.state, 'NOT TRIGGERED');
+  assert.match(reportHtml(g, green), /#047857/); assert.doesNotMatch(reportHtml(g, green), /#b91c1c/); assert.match(reportHtml(r, red), /#b91c1c/); assert.match(reportHtml(r, red), /NOT TRIGGERED/);
+  const asked: string[] = []; const rows = await writeReports(d, undefined, async (p) => { asked.push(p.tool); return { report: reportFromRules(p), used: 'rules' }; });
+  assert.deepEqual(asked, ['flake8']); // the green report is written from the facts, the writer is only asked about the red one
+  assert.deepEqual(rows.map((x) => x.file).sort(), ['Not triggered/RCA_flake8.pdf', 'Triggered/RCA_radon.pdf']);
+});
+
+test('the tool profile: task window, queue wait, pod attempts, timeline order, S3 rows and files, warnings of its task only', () => {
+  const ev = (t: string, message: string, o: object = {}, level = 'INFO', task = 'task-1') => `[cell-001-wb-orchestrator] [pod/x/wb] 2026-11-03T10:00:${t}Z ${JSON.stringify({ timestamp: `2026-11-03T10:00:${t}+00:00`, level, service_name: 'wb-orchestrator', message, task_id: task, ...o })}`;
+  const d = branch([{ tool: 'radon', task: 'task-1', phase: 'Failed', exit: 1, lines: ['boom'] }], [
+    ev('05.000', 'dispatcher.task_published', { queue: 'wb.exec.q1', environment_id: 'worker-python-3-12' }), ev('15.000', 'task.status.started'), ev('16.000', 'consumer.delivery_lease_heartbeat_failed', { delivery_attempt_id: 7 }, 'WARNING'),
+    ev('45.000', 'task.status.failed'), ev('50.000', 'consumer.ack'), ev('20.000', 'runner_base.cleanup_failed', { error: 'other task' }, 'WARNING', 'task-OTHER')], {
+    's3-check.json': { run_id: 'r1', branch: 'PY_X', python: { version: '3.12', defects: [] }, checks: [{ tool: 'radon', testingType: 'Static', technique: 'Complexity', classifications: ['CC'], result: 'EMPTY', note: 'empty report', files: ['radon/a/0/radon.json'] }] },
+    's3-folders.json': { 'radon/': ['a/0/radon.json'] } });
+  const f = buildFactPack(d, 'radon').profile;
+  assert.equal(f.seconds.queueWait, 10); assert.equal(f.seconds.task, 30); // 10:00:05 -> 10:00:15 waited, 10:00:15 -> 10:00:45 ran
+  assert.deepEqual(f.timeline.map((e) => e.label).filter((l) => !l.startsWith('Tool pod')), ['Sent to the worker queue', 'Task started on a worker', 'Task failed', 'Queue message acknowledged']);
+  assert.deepEqual(f.warnings.map((w) => w.message), ['consumer.delivery_lease_heartbeat_failed']); // the other task's warning is not here
+  assert.equal(f.s3.length, 1); assert.equal(f.s3[0].result, 'EMPTY'); assert.deepEqual(f.s3Files, ['a/0/radon.json']);
+  assert.equal(f.attempts[0].exitCode, 1); assert.match(f.identity.map((x) => x.join(' ')).join('|'), /Pod attempts 1/);
+  const html = reportHtml(reportFromRules(buildFactPack(d, 'radon')), buildFactPack(d, 'radon'));
+  assert.match(html, /Waited in queue/); assert.match(html, /30 s/); assert.match(html, /<h2>Timeline \(IST\)<\/h2>/); assert.match(html, /<h2>S3 result<\/h2>/); assert.doesNotMatch(html, /other task/);
 });

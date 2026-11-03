@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ERR, compactServiceLine, liveEvidence, norm, readJson } from './eksEvidence';
 import { matchToolRules } from './eksRules';
+import { buildProfile, ToolProfile } from './rcaProfile';
 
 /**
  * The FACT PACK of ONE defective tool: everything the RCA report may say, collected from the branch folder and nothing else.
@@ -17,7 +18,11 @@ export interface FactPack {
   classification: string; observed: string; s3Note: string; status: string;
   attempts: PodAttempt[]; decisive: PodAttempt | null;
   serviceLines: { text: string; sameTask: boolean }[]; failureJson: string[];
-  rule: PackRule | null; hasEvidence: boolean;
+  rule: PackRule | null; hasEvidence: boolean; profile: ToolProfile;
+  /** the tool ran: a pod was seen, or its S3 folder exists, or the S3 check read a result (otherwise it was NOT TRIGGERED) */
+  triggered: boolean; s3State: string;
+  /** triggered and nothing wrong: green layout. Everything else (not triggered, failed, empty, not expected) is red. */
+  healthy: boolean;
 }
 
 const ANSI = /\u001b?\[\d+(?:;\d+)*m/g;
@@ -67,9 +72,16 @@ export function buildFactPack(branchDir: string, tool: string): FactPack {
     const text = [...failureJson, ...pool.map((s) => s.text)].join('\n');
     if (text) { const k = matchToolRules({ tool, text, observed }); if (k) rule = { id: k.id, title: k.title, rootCause: k.rootCause, owner: k.owner, fix: k.fix, scope: 'service' }; }
   }
+  const sj = readJson(path.join(branchDir, 's3-check.json')); const sk = LANG_KEYS.find((k) => sj?.[k]);
+  const entries = (sk ? sj[sk].tools || [] : []).filter((t: any) => norm(t.tool) === want);
+  const s3State = String((entries.find((t: any) => t.state !== 'NOT_TRIGGERED') || entries[0])?.state || '');
+  const hasFolder = Object.keys(readJson(path.join(branchDir, 's3-folders.json')) || {}).some((f) => norm(f) === want);
+  const triggered = attempts.length > 0 || hasFolder || ['OUTPUT', 'EMPTY', 'FAILED'].includes(s3State);
+  const podOk = !decisive || rule?.id === 'findings-exit-code';
+  const healthy = triggered && !s3.classification && podOk && (sk ? s3State === 'OUTPUT' || (s3State === '' && attempts.length > 0) : attempts.length > 0);
   const runDiag = readJson(path.join(live, 'run-diagnosis.json'));
   if (!rule && runDiag && (status === 'STUCK_WAITING' || status === 'NEVER_DISPATCHED')) rule = { id: runDiag.id, title: runDiag.title, rootCause: runDiag.rootCause, owner: runDiag.owner, fix: runDiag.fix, scope: 'run' };
-  return { tool, runId: s3.runId, branch: s3.branch, language: s3.language, version: s3.version, classification: s3.classification, observed: s3.observed, s3Note: s3.note, status, attempts, decisive, serviceLines, failureJson, rule, hasEvidence: !!(attempts.length || serviceLines.length || failureJson.length) };
+  return { tool, runId: s3.runId, branch: s3.branch, language: s3.language, version: s3.version, classification: s3.classification, observed: s3.observed, s3Note: s3.note, status, attempts, decisive, serviceLines, failureJson, rule, hasEvidence: !!(attempts.length || serviceLines.length || failureJson.length), profile: buildProfile(branchDir, tool, recs, s3.language, s3.version), triggered, s3State, healthy };
 }
 
 /** Tools that need a report: the platform defects of the S3 check, plus every tool whose pod failed or that never started (when no S3 check exists). */
@@ -78,4 +90,18 @@ export function defectiveTools(branchDir: string): string[] {
   const out = new Set<string>(((key && s3[key].defects) || []).map((d: any) => d.tool as string));
   if (!key) for (const [t, s] of Object.entries(readJson(path.join(branchDir, 'eks-live', 'tool-status.json')) || {})) if (['FAILED', 'EMPTY_OUTPUT', 'STUCK_WAITING', 'NEVER_DISPATCHED'].includes(String(s))) out.add(t);
   return [...out];
+}
+
+/**
+ * Every tool of the run, one report each: the tools the S3 check expected for this language and version (triggered or not), the defects, and every tool the
+ * live capture saw (tools the capture could not place, status UNKNOWN, are left out when the S3 check exists: nothing is known about them).
+ */
+export function allTools(branchDir: string): string[] {
+  const s3 = readJson(path.join(branchDir, 's3-check.json')); const key = LANG_KEYS.find((k) => s3?.[k]);
+  const names = new Map<string, string>(); const add = (t?: string) => { if (t && !names.has(norm(t))) names.set(norm(t), t); };
+  for (const t of (key && s3[key].tools) || []) add(t.tool);
+  for (const d of (key && s3[key].defects) || []) add(d.tool);
+  for (const [t, st] of Object.entries(readJson(path.join(branchDir, 'eks-live', 'tool-status.json')) || {})) if (st !== 'UNKNOWN') add(t);
+  for (const r of readJson(path.join(branchDir, 'eks-live', 'tools.json')) || []) add(r.tool);
+  return [...names.values()];
 }

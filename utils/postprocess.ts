@@ -109,9 +109,9 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     if (noData) return 'skipped';
     const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined);
     if (!rows.length) return 'skipped';
-    const m = rows.filter((r) => r.source === 'model').length; const slow = rows.find((r) => r.note);
-    console.log(`  RCA Report: ${rows.length} tool report(s), ${m} worded by the model${slow ? ` (${rows.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
-    return `${rows.length} report(s) in "${RCA_DIR}", ${m} by the model`;
+    const m = rows.filter((r) => r.source === 'model').length; const red = rows.filter((r) => r.tone === 'red'); const nt = rows.filter((r) => !r.triggered).length; const slow = rows.find((r) => r.note);
+    console.log(`  RCA Report: ${rows.length} tool report(s): ${rows.length - red.length} green, ${red.length} red (${nt} not triggered); ${m} of the red worded by the model${slow ? ` (${red.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
+    return `${rows.length} report(s) in "${RCA_DIR}": ${rows.length - red.length} green, ${red.length} red, ${m} by the model`;
   });
   await refreshTimingWorkbook(job.branchDir).catch(() => {}); // so the copy uploaded below already has the eks / s3 / history times
   let evidenceUrl: string | undefined;
