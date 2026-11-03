@@ -6,16 +6,19 @@ import { runPostProcess } from './postprocess';
 
 (async () => {
   const args = process.argv.slice(2);
+  const di = args.indexOf('--dry-run'); if (di >= 0) { args.splice(di, 1); process.env.POST_DRYRUN = '1'; console.log('  DRY RUN: nothing is uploaded to SharePoint and nothing is sent to Teams (the previews are printed)'); }
   const ri = args.indexOf('--repo');
   const repoArg = ri >= 0 ? args.splice(ri, 2)[1] : '';
+  const ui = args.indexOf('--url'); // the run page, for the "Open the run" button of the Teams card
+  const urlArg = ui >= 0 ? args.splice(ui, 2)[1] : '';
   const dir = path.resolve(args[0] || '');
   if (!args[0] || !fs.existsSync(path.join(dir, 'run-details.json'))) {
-    console.log('Usage: npm run post -- "<results\\...\\branch folder>" [--repo owner/name]   (the folder must contain run-details.json)');
+    console.log('Usage: npm run post -- "<results\\...\\branch folder>" [--repo owner/name] [--url <run page>] [--dry-run]   (the folder must contain run-details.json)');
     process.exit(1);
   }
   const rd = JSON.parse(fs.readFileSync(path.join(dir, 'run-details.json'), 'utf8'));
   let repo = repoArg;
   if (!repo) { try { repo = JSON.parse(fs.readFileSync(path.join(dir, 's3-check.json'), 'utf8')).repo || ''; } catch { /* none */ } }
-  const ok = await runPostProcess({ branchDir: dir, branch: rd.branch_name || path.basename(dir), repo });
+  const ok = await runPostProcess({ branchDir: dir, branch: rd.branch_name || path.basename(dir), repo, url: urlArg || undefined });
   process.exit(ok ? 0 : 1);
 })();

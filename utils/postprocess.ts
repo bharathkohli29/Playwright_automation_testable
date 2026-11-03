@@ -5,11 +5,13 @@ import type { Page } from '@playwright/test';
 import { checkBranchS3, hasAwsCredentials } from './s3Evidence';
 import { describeAwsError } from './awsS3';
 import { uploadBranchToSharePoint, sharepointBranchUrl, sharepointDir } from './sharepoint';
-import { graphConfigured, uploadBranchGraph } from './sharepointGraph';
+import { graphConfigured, uploadBranchGraph, dayFolderName } from './sharepointGraph';
 import { sessionSaved, uploadBranchSession } from './sharepointSession';
 import { notifyTeams, teamsEnabled } from './teams';
 import { attachPreviousFromSharePoint } from './sharepointHistory';
 import { fetchEksLive } from './eksFetch';
+import { writeEksOnlyRca } from './eksOnlyRca';
+import { dryRun, drySharePoint } from './dryRun';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -40,6 +42,7 @@ export function writePostState(branchDir: string, s: PostState): void {
  *  3. the old OneDrive-shortcut copy (SHAREPOINT_DIR)
  */
 export async function shareBranch(branchDir: string): Promise<{ skipped: boolean; url?: string; message: string }> {
+  if (dryRun()) return { skipped: true, message: drySharePoint(branchDir, dayFolderName()) }; // POST_DRYRUN: show what would be copied, copy nothing
   if (graphConfigured()) { const r = await uploadBranchGraph(branchDir); console.log(`  ${r.message}`); return { skipped: false, url: r.url || undefined, message: r.message }; }
   if (sessionSaved()) { const r = await uploadBranchSession(branchDir); console.log(`  ${r.message}`); return { skipped: false, url: r.url, message: r.message }; }
   if (!sharepointDir()) console.log('  SharePoint upload skipped — sign in once with  npm run sp:login  (your Microsoft work account)');
@@ -48,7 +51,7 @@ export async function shareBranch(branchDir: string): Promise<{ skipped: boolean
 }
 
 export async function runPostProcess(job: PostJob): Promise<boolean> {
-  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', history: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
+  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
   // a short network / DNS outage must not lose the whole branch: network-type failures are retried after 30 s, 90 s and 3 min
   const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
@@ -78,18 +81,28 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   });
   // the earlier run of this branch for the Tool Trigger Log, read from the team's SharePoint folder (not from this PC); saved in the branch folder so it uploads with it
   await step('history', async () => { const r = await attachPreviousFromSharePoint(job.branchDir); return r === 'skipped' ? 'skipped' : r; });
-  // a failed S3 step stops the copy and the message: without the S3 result the folder and the Teams card would carry no tool data, only an empty "success".
-  // Fix the cause (usually expired AWS keys in .env) and run  npm run post -- "<branch folder>"  again.
+  // A failed S3 step has two cases. With the run's live QA EKS capture (eks-live) the root causes are still written from it by the model, and the
+  // copy and the Teams card go out with them (without S3 tool results; the card says so). Without eks-live the folder and the card would carry no
+  // tool data at all, only an empty "success", so both are skipped: fix the cause (usually expired AWS keys in .env) and run  npm run post -- "<branch folder>"  again.
   const s3Failed = st.steps.s3 === 'failed';
-  if (s3Failed) console.log(`  ${job.branch}: S3 check failed, so SharePoint and Teams are NOT sent (they would carry no tool data). Fix it and run: npm run post -- "${job.branchDir}"`);
+  let eksOnly: { tools: number; lines: string[] } | null = null;
+  await step('rca', async () => {
+    if (!s3Failed) return 'skipped';
+    eksOnly = await writeEksOnlyRca(job.branchDir, `S3 check failed: ${(st.detail.s3 || '').split('[')[0].trim().slice(0, 120)}`);
+    return eksOnly ? `${eksOnly.tools} tool(s) from the QA EKS logs` : 'skipped';
+  });
+  const noData = s3Failed && !eksOnly;
+  if (noData) console.log(`  ${job.branch}: S3 check failed and there is no QA EKS capture of this run, so SharePoint and Teams are NOT sent (they would carry no tool data). Fix it and run: npm run post -- "${job.branchDir}"`);
+  else if (s3Failed) console.log(`  ${job.branch}: S3 check failed; SharePoint and Teams go out with the root causes from the QA EKS logs only`);
   let evidenceUrl: string | undefined;
-  await step('sharepoint', async () => { if (s3Failed) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
+  await step('sharepoint', async () => { if (noData) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
   await step('teams', async () => {
-    if (s3Failed || !teamsEnabled()) return 'skipped';
+    if (noData || (!teamsEnabled() && !dryRun())) return 'skipped';
     // notifyTeams does not use the page; a passed branch never needs a screenshot
     const sent = await notifyTeams(undefined as unknown as Page, {
       branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
       minutes: job.minutes, branchDir: job.branchDir, evidenceUrl,
+      ...(eksOnly ? { headline: `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
     });
     if (!sent) throw new Error('Teams message could not be sent (network)');
   });

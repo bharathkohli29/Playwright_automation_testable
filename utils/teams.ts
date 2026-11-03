@@ -3,6 +3,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import type { Page } from '@playwright/test';
 import { toolLogElements, previousRun, ToolRow } from './toolLog';
+import { dryRun, dryTeams } from './dryRun';
 
 /**
  * Teams notification (add-on). One message per branch, posted when the branch finishes.
@@ -22,6 +23,18 @@ export interface TeamsInfo {
   imagePath?: string; // errors/failure.png
   evidenceUrl?: string; // this branch's folder in SharePoint (optional)
   branchDir?: string; // this branch's results folder (to read s3-check.json for the tool summary)
+  headline?: string; // replaces the green success line (for example when the S3 check was not available)
+  extra?: string[]; // root-cause lines from the QA EKS capture, shown under the card
+}
+
+/** The QA EKS root-cause lines of a run without an S3 result, as card text (at most 12; the rest is in the SharePoint folder eks-rca). */
+function extraBlocks(lines?: string[]): unknown[] {
+  if (!lines?.length) return [];
+  const shown = lines.slice(0, 12).map((l) => `• ${l}`).join('\n\n');
+  return [
+    { type: 'TextBlock', text: '**Root causes from the QA EKS logs**', wrap: true, spacing: 'Medium' },
+    { type: 'TextBlock', text: shown + (lines.length > 12 ? `\n\n+${lines.length - 12} more in the SharePoint folder (eks-rca)` : ''), wrap: true, spacing: 'Small' },
+  ];
 }
 
 /** Tool-validation summary (language + version, tool counts, tools with a bug) read from <branch folder>/s3-check.json. Empty when there is none. */
@@ -85,7 +98,8 @@ const card = (body: unknown[], url?: string, evidence?: string, after: unknown[]
 });
 
 /** post with up to 4 tries (4 s / 10 s / 20 s apart) so a short network blip does not lose the message */
-async function postRetry(payload: unknown): Promise<boolean> {
+async function postRetry(payload: unknown, dir?: string): Promise<boolean> {
+  if (dryRun()) return dryTeams(payload, dir); // POST_DRYRUN: show the card, send nothing
   for (const wait of [0, 4000, 10000, 20000]) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
     try { if (await post(payload)) return true; } catch (e) { console.log(`  Teams: try failed (${e instanceof Error ? e.message : e})`); }
@@ -108,17 +122,17 @@ function cleanEnv(): NodeJS.ProcessEnv {
 
 /** Returns true when the message went out (or Teams is switched off), false when it could not be sent. */
 export async function notifyTeams(page: Page, i: TeamsInfo): Promise<boolean> {
-  if (!teamsEnabled()) return true;
+  if (!teamsEnabled() && !dryRun()) return true;
   try {
     const env = (process.env.TEST_ENV || 'qa').toUpperCase();
     const where = `${i.repo ? `${i.repo} · ` : ''}${env}${i.minutes !== undefined ? ` · ${i.minutes} min` : ''}`;
     const url = i.url && /^https?:/i.test(i.url) ? i.url : undefined;
     if (i.status === 'passed') {
       const sent = await Promise.race([postRetry(card([
-        { type: 'TextBlock', text: `✅ Branch ${i.branch} successfully completed its executions`, weight: 'Bolder', wrap: true },
+        { type: 'TextBlock', text: i.headline || `✅ Branch ${i.branch} successfully completed its executions`, weight: 'Bolder', wrap: true },
         { type: 'TextBlock', text: where, isSubtle: true, wrap: true, spacing: 'Small' },
-      ], url, i.evidenceUrl, toolSummary(i.branchDir))), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
-      console.log(sent ? '  Teams: success message sent' : '  Teams: success message could not be sent (the run continues)');
+      ], url, i.evidenceUrl, [...toolSummary(i.branchDir), ...extraBlocks(i.extra)]), i.branchDir), new Promise<boolean>((r) => setTimeout(() => r(false), 90_000))]);
+      console.log(dryRun() ? '  Teams: DRY RUN, success message shown above, not sent' : sent ? '  Teams: success message sent' : '  Teams: success message could not be sent (the run continues)');
       return sent;
     }
     const reason = (i.note || 'no reason captured').replace(/\s+/g, ' ').trim().slice(0, 600);
@@ -131,6 +145,7 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<boolean> {
     // The failure message (shrink the screenshot + post) is done by a separate detached process, so it can never hold up or break the run:
     // the test returns at once and the next branch starts. Its log: <branch folder>/errors/teams-notify.log
     const dir = i.imagePath ? path.dirname(i.imagePath) : process.cwd();
+    if (dryRun()) return dryTeams(card(body, url, i.evidenceUrl, toolSummary(i.branchDir)), i.branchDir || dir);
     const jobFile = path.join(dir, 'teams-job.json');
     fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl, toolSummary(i.branchDir)), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
     const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true, env: cleanEnv() });
