@@ -255,8 +255,8 @@ def build():
           tbl([["File", "Role"],
                ["utils/eksCollector.ts", "Live capture of pod and service logs of this run id; redacts secrets; writes eks-live (pods/, tools/, services.log, summary.json, run_summary.md)."],
                ["utils/eksReport.ts", "Per-tool status records: PASSED, FAILED, EMPTY_OUTPUT, NEVER_DISPATCHED, STUCK_WAITING, UNKNOWN."],
-               ["utils/eksPatterns.ts", "The known-pattern rules (table below) and stuck-run detection."],
-               ["utils/eksDiagnose.ts", "Collects the evidence of one tool: its failure.json, the pod's exit reason and console lines, the service lines that name exactly this tool (planning lists are read for the tool's own entry); applies the patterns; otherwise returns the lines as NO_KNOWN_PATTERN."],
+               ["utils/eksPatterns.ts", "The first known-pattern rules and stuck-run detection (Bharathkumar's file); the newer rules are in utils/eksRules.ts."],
+               ["utils/eksEvidence.ts, eksRootCause.ts, eksRules.ts", "Collects the evidence of one tool: its failure.json, the pod's exit reason and console lines, the service lines that name exactly this tool (planning lists are read for the tool's own entry); applies the patterns; otherwise returns the lines as NO_KNOWN_PATTERN."],
                ["utils/eksAnalyze.ts", "Cluster access helpers: the kubectl context qa-eks-ro, the key or profile, a reachability check."],
                ["utils/eksFetch.ts, utils/eksOnlyRca.ts", "The eks step (download a run's saved eks-live from SharePoint) and the root causes written when the S3 check failed."],
                ["utils/eksHistory.ts, eksSetup.ts, eksLogin.ts", "npm run eks:history (re-check a finished run), npm run eks:setup (kubectl, AWS sign-in, allowed IP), the browser sign-in."]],
@@ -272,7 +272,7 @@ def build():
                ["pod-completed-no-output", "the tool's pod ended Completed, but S3 has no result for it", "Platform (tool runner result upload)"],
                ["oom-killed, image-pull, stuck run", "OOMKilled (exit 137), ImagePullBackOff, a run that stayed waiting for a runtime", "Platform (runner limits / image registry / runtime)"]],
               [150, 230, 152]),
-          Paragraph("A rule is added in eksPatterns.ts, with a unit test, each time the team solves a new case: the next run that hits it is explained at once. Earlier versions also wrote the explanation with a local Ollama model; it was removed on 3 Nov 2026 and is in the git history up to commit af4944b.", small)]
+          Paragraph("A rule is added in eksRules.ts, with a unit test, each time the team solves a new case: the next run that hits it is explained at once. Earlier versions also wrote the explanation with a local Ollama model; it was removed on 3 Nov 2026 and is in the git history up to commit af4944b.", small)]
     s.append(PageBreak())
 
     # ---------------- 5 validate
@@ -361,7 +361,7 @@ def build():
                ["Re-run after a failed step", "Fix the cause (usually new AWS keys), run npm run post again", "When S3 or another step fails"],
                ["Read results and file bugs", "Review the PDFs and Jira text; the script writes drafts but does not create Jira tickets", "Each run"],
                ["Clean up duplicates", "Delete empty Teams cards and unwanted _RUNn folders; the script cannot delete them", "When they appear"],
-               ["Add a rule for a new case", "Developer: when the team solves a new platform cause, add a rule in utils/eksPatterns.ts with a unit test; the next run that hits it is explained at once", "When a new cause is found"],
+               ["Add a rule for a new case", "Developer: when the team solves a new platform cause, add a rule in utils/eksRules.ts with a unit test; the next run that hits it is explained at once", "When a new cause is found"],
                ["Commit and push", "git add by name, commit, push to dev", "When code changes"]],
               [120, 296, 116])]
     s.append(PageBreak())

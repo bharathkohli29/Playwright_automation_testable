@@ -1,5 +1,5 @@
 import { chromium } from '@playwright/test';
-import type { EksAiDiagnosis } from './eksDiagnose';
+import type { EksAiDiagnosis } from './eksRootCause';
 
 /**
  * validation-report.pdf for npm run validate: the checker's table (PASS / EMPTY / FAIL per tool row) and, for every tool that did not pass, what its

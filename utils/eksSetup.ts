@@ -13,7 +13,7 @@ import { ensureEksSignedIn } from './eksLogin';
 const PROFILE = (process.env.EKS_AWS_PROFILE || 'qa-eks-ro').trim();
 const REGION = (process.env.EKS_REGION || 'us-east-2').trim(); // always passed explicitly (an old profile once had the typo us-east-32)
 const CLUSTER = (process.env.EKS_CLUSTER_NAME || 'qa-eks').trim();
-const ACCOUNT = (process.env.S3_AWS_ACCOUNT || '759498976252').trim(), ROLE = (process.env.S3_AWS_ROLE || 'QA-S3-Readonly').trim(); // the QA account and role of the S3 keys; override only if they change
+const ACCOUNT = '759498976252', ROLE = 'QA-S3-Readonly';
 const AWS = (process.env.EKS_AWS_CLI || 'aws').trim(), KUBECTL = (process.env.EKS_KUBECTL || 'kubectl').trim();
 const WIN = process.platform === 'win32';
 

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium } from '@playwright/test';
 import type { PyDefect } from './pyValidate';
-import { liveDiagnosis, type EksAiDiagnosis } from './eksDiagnose';
+import { liveDiagnosis, type EksAiDiagnosis } from './eksRootCause';
 import { eksAutoEnabled } from './eksAnalyze';
 
 /**

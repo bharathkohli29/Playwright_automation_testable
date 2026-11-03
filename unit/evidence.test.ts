@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { liveEvidence, liveDiagnosis } from '../utils/eksDiagnose';
-import { matchToolPattern } from '../utils/eksPatterns';
+import { liveEvidence, compactServiceLine } from '../utils/eksEvidence';
+import { liveDiagnosis } from '../utils/eksRootCause';
+import { matchToolRules as matchToolPattern } from '../utils/eksRules';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'evidence-'));
 const withLog = (lines: string[]) => { const d = tmp(); fs.mkdirSync(path.join(d, 'eks-live')); fs.writeFileSync(path.join(d, 'eks-live', 'services.log'), lines.join('\n')); return d; };
@@ -75,5 +76,6 @@ test('rules that replace the model: readiness block, planning skipped_tools (lan
 
 test('the model is gone: no module of the script imports Ollama or the model setup', () => {
   const utils = path.join(__dirname, '..', 'utils');
-  for (const f of fs.readdirSync(utils).filter((x) => x.endsWith('.ts'))) assert.doesNotMatch(fs.readFileSync(path.join(utils, f), 'utf8'), /from '\.\/(eksModel|eksMentor|ollamaHost|ollamaInstall|teach)'/, `${f} still imports a model module`);
+  for (const f of fs.readdirSync(utils).filter((x) => x.endsWith('.ts'))) assert.doesNotMatch(fs.readFileSync(path.join(utils, f), 'utf8'), /from '\.\/(eksModel|ollamaHost|ollamaInstall|teach)'/, `${f} still imports a model module`);
+  assert.match(fs.readFileSync(path.join(utils, 'eksMentor.ts'), 'utf8').replace(/^\/\/.*$/gm, '').trim(), /^export type \{ EksAiDiagnosis \} from/, 'eksMentor.ts must stay a type-only stub');
 });

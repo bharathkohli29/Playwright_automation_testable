@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { verdict, analyseJson, analyseXml } from '../utils/s3Check';
-import { matchToolPattern } from '../utils/eksPatterns';
+import { matchToolRules as matchToolPattern } from '../utils/eksRules';
 import { dryTeams, dryRun } from '../utils/dryRun';
 import { serviceProblems } from '../utils/eksOnlyRca';
 import { warn, warningCount } from '../utils/warn';

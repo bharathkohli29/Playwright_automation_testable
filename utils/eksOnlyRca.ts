@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { buildRunReport, type ToolStatus } from './eksReport';
-import { liveDiagnosis } from './eksDiagnose';
-import type { EksAiDiagnosis } from './eksDiagnose';
+import { liveDiagnosis } from './eksRootCause';
+import type { EksAiDiagnosis } from './eksRootCause';
 
 /**
  * Root causes for a run whose S3 check FAILED (expired AWS keys, no S3 access) but whose live QA EKS capture (<branch folder>/eks-live) exists.

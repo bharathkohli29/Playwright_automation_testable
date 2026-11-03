@@ -4,7 +4,7 @@ import './env';
 import { s3Root } from './env';
 import type { S3Reader } from './awsS3';
 import { checkBranchS3 } from './s3Evidence';
-import { liveDiagnosis } from './eksDiagnose';
+import { liveDiagnosis } from './eksRootCause';
 import { writeValidationPdf, type PdfProblem } from './validationPdf';
 
 /**
