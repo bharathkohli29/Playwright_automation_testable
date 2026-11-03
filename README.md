@@ -37,11 +37,11 @@ npm install
 npx playwright install chromium
 cp .env.example .env      # PowerShell: Copy-Item .env.example .env, then fill it in (see below)
 npm run sp:login          # once: sign in to SharePoint with your Microsoft work account
-npm run model:setup       # once per PC (needs Ollama installed): downloads and registers the QA EKS model from SharePoint
+npm run model:setup       # once per PC: installs Ollama if it is missing (Windows), then downloads and registers the QA EKS model from SharePoint (it also happens by itself at the first model call)
 npm run preflight         # shows what is missing (AWS keys, sign-ins, Ollama, cluster) and what it would skip, before you start
 ```
 
-What you do by hand: pull the branch, put the branch links in `builds.json`, fill `.env` (AWS keys, Teams webhook, Testable login), run `npm run sp:login` once, install Ollama once, and start `npm test`. Everything after that is automatic. The AWS keys expire after a few hours: paste fresh ones before a long run.
+What you do by hand: pull the branch, put the branch links in `builds.json`, fill `.env` (AWS keys, Teams webhook, Testable login), run `npm run sp:login` once, and start `npm test`. Ollama is installed by the script when it is missing. Everything after that is automatic. The AWS keys expire after a few hours: paste fresh ones before a long run.
 
 Run branches (PowerShell):
 
@@ -151,6 +151,8 @@ A small local model (`qa-eks-mentor-trained`, Qwen2.5 3B served by Ollama) expla
 4. The bug drafts (PDF, HTML, Jira text) print the diagnosis **only when such a ready report exists**. Without a report nothing is printed, never a guess.
 
 **When it is skipped (one line in the log, the run continues):** no EKS key or sign-in, `kubectl`/`aws` not on the PATH, the cluster not reachable from this PC (network / VPN), or the 8-minute limit (`EKS_ANALYZE_MIN`) reached. If the cluster was recreated with a new address, the saved kubectl context `qa-eks-ro` is refreshed from AWS automatically (needs the EKS key; with a sign-in profile run `aws eks update-kubeconfig --name qa-eks --region us-east-2 --alias qa-eks-ro` once).
+
+**Ollama installs itself (`utils/ollamaInstall.ts`):** the first time the model is needed on a Windows PC, the script looks for Ollama (`EKS_OLLAMA`, the PATH, `%LOCALAPPDATA%\Programs\Ollama`). If it is there, it is used and nothing is downloaded. If not, it installs it per user, with no administrator rights: first `winget install --id Ollama.Ollama` (winget checks the package), otherwise the official installer from `https://ollama.com/download/OllamaSetup.exe`, which is run silently only when its signature is valid and belongs to Ollama Inc.; a download that fails this check is deleted and never run. The installer is about 1.6 GB and the script needs about 8 GB free on the drive first (if less, it says so and stops; install by hand or free some space). It then starts the server and downloads the model as before. `OLLAMA_AUTO_INSTALL=off` turns the installation off; other systems than Windows get a manual instruction. It is not used with a shared host (`OLLAMA_HOST`). `npm run preflight` tells in advance when Ollama is missing and will be installed.
 
 **One shared model server, nothing to install on the other PCs (`OLLAMA_HOST`):** one team PC runs Ollama with the model (`npm run model:setup` there), everyone else puts `OLLAMA_HOST=http://<that PC>:11434` in `.env`. With a shared host the script never starts Ollama and never downloads or registers the model on the teammate's PC; it only checks that the shared server answers and has the model (`npm run preflight` shows `shared Ollama at ... is up, model ... is registered there`). If the host is off, the run carries on with rule-based text and the log says so. Host PC, once: install Ollama, `npm run sp:login`, `npm run model:setup`; set the Windows environment variable `OLLAMA_HOST=0.0.0.0:11434` (listen on the network) and restart Ollama; allow inbound TCP 11434 in Windows Firewall for the private network; give the PC a fixed address and keep it on. Ollama has no login: use it only inside the office network or VPN. Calls queue one after another (about 5 seconds each). A new model is promoted once on the host and every teammate has it.
 

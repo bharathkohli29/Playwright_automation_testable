@@ -10,6 +10,7 @@ import { sessionSaved, sessionFileRequest } from './sharepointSession';
 import { teamsEnabled } from './teams';
 import { eksAutoEnabled, eksClusterReady } from './eksAnalyze';
 import { isLocalOllama, ollamaModels, ollamaUrl } from './ollamaHost';
+import { findOllama } from './ollamaInstall';
 
 /**
  * Pre-flight check, run once before the first branch (npm test) or by hand (npm run preflight): looks at everything the run and its post-processing
@@ -78,10 +79,11 @@ async function checkOllama(): Promise<Check> {
   let tags: string[] = [];
   try { const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) }); tags = ((await r.json()) as any).models?.map((m: any) => String(m.name)) || []; }
   catch {
-    const v = spawnSync(clean(process.env.EKS_OLLAMA) || 'ollama', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32', timeout: 15_000, windowsHide: true });
-    return v.status === 0
-      ? { name: 'Ollama model', level: 'OK', message: 'Ollama is installed but not running; the run starts it by itself at the first model call' }
-      : { name: 'Ollama model', level: 'WARN', message: 'Ollama is not installed on this PC', effect: 'no model text: the reports use the rules and the log lines only', fix: 'install Ollama (ollama.com) once, then npm run model:setup' };
+    if (findOllama()) return { name: 'Ollama model', level: 'OK', message: 'Ollama is installed but not running; the run starts it by itself at the first model call' };
+    const auto = !/^(off|no|0|false)$/i.test(clean(process.env.OLLAMA_AUTO_INSTALL)) && process.platform === 'win32';
+    return auto
+      ? { name: 'Ollama model', level: 'WARN', message: 'Ollama is not installed on this PC', effect: 'it is installed automatically at the first model call (winget or the official signed installer, per user, no administrator rights; about 1.6 GB download, a few minutes), then the model (about 1.9 GB) is downloaded', fix: 'to do it now: npm run model:setup (needs about 8 GB free disk)' }
+      : { name: 'Ollama model', level: 'WARN', message: 'Ollama is not installed on this PC', effect: 'no model text: the reports use the rules and the log lines only', fix: 'install Ollama from ollama.com once, then npm run model:setup (automatic installation is off or not available here)' };
   }
   let want = clean(process.env.OLLAMA_QA_MODEL) || 'qa-eks-mentor-trained';
   try { want = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'qa-eks-mentor', 'model.json'), 'utf8').replace(/^﻿/, '')).name || want; } catch { /* default */ }

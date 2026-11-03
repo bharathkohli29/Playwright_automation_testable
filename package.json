@@ -18,7 +18,7 @@
     "teach": "tsx utils/teach.ts",
     "validate": "tsx utils/validateFolder.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test:unit": "node --import tsx --test unit/logic.test.ts unit/teach.test.ts unit/validate.test.ts unit/ollamaHost.test.ts",
+    "test:unit": "node --import tsx --test unit/logic.test.ts unit/teach.test.ts unit/validate.test.ts unit/ollamaHost.test.ts unit/ollamaInstall.test.ts",
     "check": "npm run typecheck && npm run test:unit",
     "status": "tsx status-dashboard/server.ts"
   },

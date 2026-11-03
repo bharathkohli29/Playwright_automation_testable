@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import { ensureOllama } from './eksAnalyze';
 import { isLocalOllama, ollamaModels, ollamaUrl } from './ollamaHost';
+import { ensureOllamaInstalled } from './ollamaInstall';
 import { sessionFileRequest } from './sharepointSession';
 
 /**
@@ -65,7 +66,7 @@ export function ensureEksModel(say: (m: string) => void = (m) => console.log(`  
         if (names.some((n) => n === m.name || n === `${m.name}:latest`)) return true;
         say(`the shared Ollama at ${ollamaUrl()} does not have the model ${m.name}: the PC that hosts it must run  npm run model:setup  (or ask the QA lead)`); return false;
       }
-      if (ollama(['--version'], 20_000).status !== 0) { say('Ollama is not installed on this PC. Install it from https://ollama.com/download , then run: npm run model:setup'); return false; }
+      if (!(await ensureOllamaInstalled(say))) return false; // found: used; missing: installed here (Windows, per user), unless OLLAMA_AUTO_INSTALL=off
       if (!(await ensureOllama(say))) return false;
       if (registeredSha(m.name) === m.sha256) return true;
       say(`model ${m.name} (version ${m.version}) is not registered on this PC, setting it up ...`);
