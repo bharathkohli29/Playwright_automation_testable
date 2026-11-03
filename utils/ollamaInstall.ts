@@ -53,7 +53,8 @@ export function findOllama(d: Deps = defaultDeps): string | null {
   const works = (cmd: string) => d.run(cmd, ['--version'], 20_000).status === 0;
   const fromEnv = clean(d.env.EKS_OLLAMA); if (fromEnv && works(fromEnv)) return fromEnv;
   if (works('ollama')) return 'ollama';
-  const candidates = [path.join(d.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'), 'C:\\Program Files\\Ollama\\ollama.exe'];
+  // Windows folders: always joined the Windows way, whatever system runs this code (path.join would use "/" on Linux, as on the GitHub check)
+  const candidates = [path.win32.join(d.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'), 'C:\\Program Files\\Ollama\\ollama.exe'];
   for (const c of candidates) if (d.exists(c) && works(c)) return c;
   return null;
 }
