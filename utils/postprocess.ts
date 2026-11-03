@@ -14,6 +14,7 @@ import { writeEksOnlyRca } from './eksOnlyRca';
 import { dryRun, drySharePoint } from './dryRun';
 import { warningCount } from './warn';
 import { writeRoundSummary } from './roundSummary';
+import { recordPostStep, refreshTimingWorkbook } from './timings';
 
 /**
  * Everything that happens to a PASSED branch after the site part (steps 1-15) is done and needs no browser:
@@ -59,6 +60,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
   const step = async (name: string, fn: () => Promise<string | void>) => {
     st.steps[name] = 'running'; save();
+    const t0 = Date.now();
     for (let attempt = 0; ; attempt++) {
       try { const d = await fn(); st.steps[name] = d === 'skipped' ? 'skipped' : 'done'; if (d && d !== 'skipped') st.detail[name] = d; else delete st.detail[name]; break; }
       catch (e) {
@@ -69,6 +71,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
       }
     }
     save();
+    recordPostStep(job.branchDir, { step: name, start: t0, end: Date.now(), status: st.steps[name], detail: st.detail[name] }); // timings.xlsx
   };
   console.log(`\n=== Post-processing ${job.branch} ===`);
   save();
@@ -98,6 +101,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   const noData = s3Failed && !eksOnly;
   if (noData) console.log(`  ${job.branch}: S3 check failed and there is no QA EKS capture of this run, so SharePoint and Teams are NOT sent (they would carry no tool data). Fix it and run: npm run post -- "${job.branchDir}"`);
   else if (s3Failed) console.log(`  ${job.branch}: S3 check failed; SharePoint and Teams go out with the root causes from the QA EKS logs only`);
+  await refreshTimingWorkbook(job.branchDir).catch(() => {}); // so the copy uploaded below already has the eks / s3 / history times
   let evidenceUrl: string | undefined;
   await step('sharepoint', async () => { if (noData) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });
   await step('teams', async () => {
@@ -121,6 +125,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   });
 
   const nWarn = warningCount(job.branchDir); if (nWarn) { st.detail.warnings = `${nWarn} warning(s) in warnings.log`; console.log(`  ${nWarn} warning(s) were written to ${path.join(job.branchDir, 'warnings.log')}`); }
+  await refreshTimingWorkbook(job.branchDir).catch(() => {}); // the local timings.xlsx now has every step of the worker too
   const failed = Object.values(st.steps).includes('failed');
   st.state = failed ? 'failed' : 'done'; save();
   writeRoundSummary(job.branchDir); // <round folder>/summary.md: one row per branch

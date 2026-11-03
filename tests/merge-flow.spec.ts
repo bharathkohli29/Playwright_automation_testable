@@ -12,6 +12,7 @@ import { notifyTeams } from '../utils/teams';
 import { shareBranch } from '../utils/postprocess';
 import { attachPreviousFromSharePoint } from '../utils/sharepointHistory';
 import { startEksCollector, EksCollector } from '../utils/eksCollector';
+import { writeTimingWorkbook } from '../utils/timings';
 import { postprocessMode, enqueuePostProcess, echoWorkerLog, drainPostProcess } from '../utils/postprocessQueue';
 
 const builds = loadBuilds();
@@ -146,6 +147,9 @@ builds.forEach((build, index) => {
       throw e;
     } finally {
       await eks?.stop();
+      // time of every step + every tool pod → <branch folder>/timings.xlsx (never throws)
+      try { console.log(`  Timings saved: ${await writeTimingWorkbook({ branchDir: branchDir(build.dir), branch: build.branch, repo: build.repo, runId: /runId=([\w-]+)/.exec(page.url())?.[1] ?? null, status, scriptStart: started, scriptEnd: Date.now(), steps: cases.steps, handedOff })}`); }
+      catch (e) { console.log(`  Timings not written: ${e instanceof Error ? e.message : e}`); }
       addSummary({
         branch: build.branch, status, note, url: page.url(),
         runId: /runId=([\w-]+)/.exec(page.url())?.[1] ?? null,
