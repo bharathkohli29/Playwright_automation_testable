@@ -107,21 +107,19 @@ def build():
           Spacer(1, 10), HRFlowable(width="100%", color=TEAL, thickness=2), Spacer(1, 12)]
     s.append(Paragraph(
         "This guide explains the whole automation in one place: how a test run works, what happens after it (S3 evidence, bug drafts, SharePoint, Teams), "
-        "how the QA EKS log capture and the Ollama model produce root causes, how Ollama is found, installed or shared and how the model reaches every PC, "
-        "how the model is taught from real runs, how a folder of tool results is validated, and how to process a run <b>without executing it again</b>. "
+        "how the QA EKS live log capture explains platform defects by rules, how a folder of tool results is validated, and how to process a run <b>without executing it again</b>. "
         "Each part starts with a flow chart, followed by the details.", body))
-    s.append(Paragraph("<b>Branch:</b> dev &nbsp;&nbsp; <b>Latest commit:</b> 9e68f25 &nbsp;&nbsp; <b>Date:</b> 3 Nov 2026", small))
+    s.append(Paragraph("<b>Branch:</b> dev &nbsp;&nbsp; <b>Latest commit:</b> af4944b+ &nbsp;&nbsp; <b>Date:</b> 3 Nov 2026", small))
     s.append(Spacer(1, 10))
     s.append(tbl([["#", "Part", "What it covers"],
                   ["1", "Big picture", "All stages from queue to Teams in one chart; what was implemented"],
                   ["2", "The test run", "Steps 0 to 15 in the browser; pre-flight check; where the live EKS collector starts and stops"],
                   ["3", "Post-processing", "eks fetch, S3 check, history, SharePoint, Teams; S3 failure, dry run, no duplicates"],
-                  ["4", "QA EKS and the model", "Live capture, known patterns, Ollama model, the quoted-line check"],
-                  ["5", "Ollama: install, host, model", "Find or install Ollama, use a shared host, download and register the model, promote a new one"],
-                  ["6", "Teach and validate", "npm run teach (training data from real runs) and npm run validate (a folder of tool results, PDF report)"],
-                  ["7", "A run without execution", "Process a finished run from its run id"],
-                  ["8", "Automatic and manual", "Which tasks the script does itself and which a person must do"],
-                  ["9", "Reference", "Commands, settings, files produced, what is proven and what is not"]],
+                  ["4", "QA EKS root cause", "Live capture, known patterns (rules), what is written when no rule matches"],
+                  ["5", "Validate a folder", "npm run validate: a folder of tool results, PDF report"],
+                  ["6", "A run without execution", "Process a finished run from its run id"],
+                  ["7", "Automatic and manual", "Which tasks the script does itself and which a person must do"],
+                  ["8", "Reference", "Commands, settings, files produced, what is proven and what is not"]],
                  [24, 130, 378]))
     s.append(PageBreak())
 
@@ -136,10 +134,10 @@ def build():
         "s3": N(150, 188, 110, 38, "S3 evidence check\n(tool results, PASS/FAIL)", "teal"),
         "ok": N(280, 188, 60, 38, "S3 ok?", "amber", "dec"),
         "bug": N(385, 188, 135, 38, "Bug drafts per defective tool\n(PDF + HTML + Jira text)", "blue"),
-        "ai": N(360, 114, 160, 40, "Root cause: pod logs ->\nknown patterns -> Ollama model\n-> quoted-line check", "violet"),
+        "ai": N(360, 114, 160, 40, "Root cause: pod logs ->\nknown patterns (rules)\n-> real lines attached", "violet"),
         "sp": N(150, 40, 130, 40, "SharePoint copy\n<day>/<branch>[_RUNn]", "green"),
         "tm": N(310, 40, 120, 40, "Teams message\n(card with results)", "green"),
-        "stop": N(10, 108, 125, 52, "S3 failed: EKS logs exist?\nyes: RCA from the EKS logs\n(model), still to SharePoint\nand Teams. no: stop", "amber"),
+        "stop": N(10, 108, 125, 52, "S3 failed: EKS logs exist?\nyes: RCA from the EKS logs\n(rules), still to SharePoint\nand Teams. no: stop", "amber"),
     }
     edges = [("q", "r", "", None, "r", "l"), ("r", "c", "", None, "r", "l"), ("c", "w", "", None, "r", "l"),
              ("w", "e", "", [(467, 245), (70, 245)], "b", "t"), ("e", "s3", "", None, "r", "l"), ("s3", "ok", "", None, "r", "l"),
@@ -148,23 +146,22 @@ def build():
              ("ok", "stop", "no", [(310, 134)], "b", "r")]
     s.append(Chart(530, 305, nodes, edges))
     s.append(Paragraph("Each branch is handled by the browser run first. When it finishes, a background worker does everything else, so the next branch can start at once "
-                       "and the platform is not left idle. The model only writes the text of a root cause; it never decides pass or fail.", body))
+                       "and the platform is not left idle. The root cause is written by rules from real log lines; only the S3 check decides pass or fail.", body))
     s += [Paragraph("What was implemented, in one line each", h2),
           tbl([["Area", "Implemented"],
                ["Test run", "Playwright flow of the platform (repo, branch, trigger, confidence engine), 60 minute limit, stuck-run early stop, date placeholders, optional dummy commit"],
                ["Evidence", "S3 check per language (Python, JS, TS, C#, Java), false-empty detection, taxonomy report with UI values"],
                ["Reports", "Bug drafts per defective tool: PDF, HTML and Jira text, with Action and Acceptance rows"],
                ["QA EKS", "Live pod and service log capture, known-pattern rules, per-tool records, stuck-run detection, history re-check"],
-               ["Model", "Local Ollama model (qa-eks-mentor), RCA prompt, quoted-line check, signature cache, 6 calls per branch"],
+               ["Root cause", "Known-pattern rules over real log lines (eks-live, failure.json); NO_KNOWN_PATTERN with the real lines attached when no rule matches"],
                ["Delivery", "SharePoint copy with RUNn folders, Teams card, earlier-run history from SharePoint"],
-               ["Setup", "model:setup (download, verify, register), eks:setup, sp:login, status page"],
-               ["Start-up check", "npm run preflight, also the second step of npm test: AWS keys, sign-ins, Ollama, cluster; OK / WARN / FAIL with effect and fix (PREFLIGHT=strict stops on a FAIL)"],
-               ["Ollama", "Found: used. Missing: installed per user on Windows (winget, else the signed official installer). Or one shared host for the team (OLLAMA_HOST)"],
+               ["Setup", "eks:setup, sp:login, status page"],
+               ["Start-up check", "npm run preflight, also the second step of npm test: AWS keys, sign-ins, cluster; OK / WARN / FAIL with effect and fix (PREFLIGHT=strict stops on a FAIL)"],
                ["Dry run", "POST_DRYRUN=1 or --dry-run: everything that only reads runs, the SharePoint copy and the Teams card are only previewed"],
                ["No duplicates", "A SharePoint folder that already holds the same run id is reused; a complete Teams card is sent once per run"],
                ["Round files", "summary.md per round, timings.xlsx per branch (steps and tool pods), warnings.log for problems that must not stop a run"],
-               ["Teach and validate", "npm run teach builds training data from real runs; npm run validate checks a folder of tool results and writes a PDF with RULE / MODEL tags"],
-               ["Safety", "S3 failure without EKS logs stops SharePoint and Teams; all EKS access is read only; secrets redacted in captured logs; installer must be signed by Ollama Inc."]],
+               ["Validate a folder", "npm run validate checks a folder of tool results and writes a PDF report (checker table, tools that did not pass, rule diagnosis)"],
+               ["Safety", "S3 failure without EKS logs stops SharePoint and Teams; all EKS access is read only; secrets redacted in captured logs"]],
               [80, 452])]
     s.append(PageBreak())
 
@@ -195,7 +192,7 @@ def build():
                ["60 minute limit", "A run that does not finish within 60 minutes is stopped and reported."],
                ["Run mismatch guard", "After step 15 the run on the site must be the branch asked for; otherwise RUN-MISMATCH.txt is written."],
                ["Handoff", "POSTPROCESS=background (default): the worker does S3, SharePoint and Teams. POSTPROCESS=inline does it in the test."],
-               ["Pre-flight check", "Before the first branch (second setup step of npm test, or npm run preflight): branch list, platform login, AWS keys (a real read), SharePoint sign-in, Teams webhook, Ollama and model, EKS cluster. Prints OK / WARN / FAIL with the effect and the fix and saves preflight.json; changes nothing. PREFLIGHT=strict stops the run on a FAIL, PREFLIGHT=off skips it."],
+               ["Pre-flight check", "Before the first branch (second setup step of npm test, or npm run preflight): branch list, platform login, AWS keys (a real read), SharePoint sign-in, Teams webhook, EKS cluster. Prints OK / WARN / FAIL with the effect and the fix and saves preflight.json; changes nothing. PREFLIGHT=strict stops the run on a FAIL, PREFLIGHT=off skips it."],
                ["Timings", "At the end of each branch, timings.xlsx (sheets Summary, Steps, Tools, Post-processing) and timings.json in the branch folder, timings-summary.csv for the round: the time of every step and every tool pod (read only, never stops a run)."]],
               [120, 412])]
     s.append(PageBreak())
@@ -211,7 +208,7 @@ def build():
         "c": N(190, 200, 150, 30, "s3: check tool evidence", "teal"),
         "d": N(190, 150, 150, 30, "history: earlier run from SharePoint", "teal"),
         "e": N(165, 100, 200, 34, "S3 step failed?", "amber", "dec"),
-        "f": N(5, 92, 140, 50, "rca: EKS logs of this run exist?\nyes: root causes from the EKS\nlogs only (model), then go on\nno: skip SharePoint and Teams", "violet"),
+        "f": N(5, 92, 140, 50, "rca: EKS logs of this run exist?\nyes: root causes from the EKS\nlogs only (rules), then go on\nno: skip SharePoint and Teams", "violet"),
         "g": N(190, 50, 150, 30, "sharepoint: copy branch folder", "green"),
         "h": N(190, 6, 150, 30, "teams: send the card", "green"),
     }
@@ -228,11 +225,11 @@ def build():
                ["teams", "Sends a card with tool results and an Open-the-run button.", "done / skipped"]],
               [58, 330, 144]),
           Paragraph("Lesson from the Java run: when S3 failed with ExpiredToken, the old flow still posted SharePoint and Teams with no tool data. Now a failed S3 step "
-                    "writes the root causes from the run's live EKS logs (step rca, folder eks-rca: known patterns first, then the model) and sends SharePoint and Teams with them; "
+                    "writes the root causes from the run's live EKS logs (step rca, folder eks-rca: known patterns, by rules) and sends SharePoint and Teams with them; "
                     "the Teams card says S3 was not available. Without an eks-live of that run, both are skipped.", small),
           Paragraph("More behaviour of the worker", h2),
           tbl([["Feature", "How it works"],
-               ["Dry run", "POST_DRYRUN=1 in .env, or npm run post -- \"&lt;folder&gt;\" --dry-run: S3, EKS logs, model and bug drafts run as usual; the SharePoint upload (files, MB, folder) and the Teams card (text, buttons, size against the 28 KB webhook limit) are only printed and saved in &lt;round&gt;/dryrun/. Use it to test a new .env without filling the channel."],
+               ["Dry run", "POST_DRYRUN=1 in .env, or npm run post -- \"&lt;folder&gt;\" --dry-run: S3, EKS logs and bug drafts run as usual; the SharePoint upload (files, MB, folder) and the Teams card (text, buttons, size against the 28 KB webhook limit) are only printed and saved in &lt;round&gt;/dryrun/. Use it to test a new .env without filling the channel."],
                ["No duplicate folders", "A SharePoint folder of the same day that already holds the same run_id in its run-details.json is reused instead of making _RUN2, _RUN3."],
                ["No duplicate cards", "A complete Teams card (with the S3 result) is sent once per run (teams-sent.json); TEAMS_RESEND=1 sends it again. A partial card (S3 failed) is replaced by the full one."],
                ["Stale S3 result", "When S3 fails now, an older s3-check.json of that folder is kept as s3-check.previous.json, so a card never shows old tool results."],
@@ -240,131 +237,63 @@ def build():
               [120, 412])]
     s.append(PageBreak())
 
-    # ---------------- 4 EKS + model
-    s += [Paragraph("4. QA EKS logs and the Ollama model", h1),
-          Paragraph("Goal: for every defective tool, name the platform cause from real log lines. The model only writes the explanation; rules and evidence come first.", body)]
+    # ---------------- 4 EKS root cause by rules
+    s += [Paragraph("4. QA EKS logs and the root cause (rules)", h1),
+          Paragraph("Goal: for every defective tool, name the platform cause from real log lines, by rules (known patterns). No model is involved: nothing is guessed, and when no rule matches the real lines are attached for a person to read.", body)]
     nodes = {
-        "t": N(190, 330, 150, 28, "Defective tool (FAIL / EMPTY)", "gray", "round"),
-        "ev": N(165, 282, 200, 34, "Gather evidence: eks-live pod logs,\nservice lines, failure.json from S3", "violet"),
-        "no": N(10, 282, 125, 34, "No real log lines:\nsay so, no guess", "red"),
-        "kp": N(190, 228, 150, 34, "Known pattern matches?", "amber", "dec"),
-        "pa": N(380, 228, 140, 34, "Rule answers\n(no model call)", "green"),
-        "calls": N(190, 174, 150, 34, "Cache hit or under 6 calls?", "amber", "dec"),
-        "ru": N(10, 174, 125, 34, "Rule-based text\n(no model sentence)", "gray"),
-        "ol": N(190, 120, 150, 32, "Ollama: RCA input block", "violet"),
-        "ans": N(380, 120, 140, 32, "Verdict / Root cause / Evidence\nOwner / Action / Acceptance", "blue"),
-        "q": N(190, 68, 150, 34, "Quoted log line exists\nin the captured lines?", "amber", "dec"),
-        "g": N(380, 68, 140, 34, "GROUNDED", "green"),
-        "u": N(380, 14, 140, 34, "UNVERIFIED: treat as a guess", "red"),
-        "out": N(10, 14, 125, 34, "Bug draft: PDF, HTML, Jira\n+ SharePoint upload", "green"),
+        "t": N(190, 236, 150, 26, "Defective tool (FAIL / EMPTY)", "gray", "round"),
+        "ev": N(150, 184, 230, 40, "Gather evidence: eks-live pod logs, service\nlines naming this tool, failure.json from S3", "violet"),
+        "no": N(10, 188, 105, 34, "No real log lines:\nnothing is written", "red"),
+        "kp": N(190, 124, 150, 40, "Known pattern matches?", "amber", "dec"),
+        "pa": N(380, 124, 140, 40, "Answer from the rule,\nthe real line quoted", "green"),
+        "nk": N(190, 64, 150, 40, "NO_KNOWN_PATTERN: the real\nlines are attached", "gray"),
+        "out": N(190, 8, 150, 38, "Bug draft: PDF + Jira text,\nSharePoint upload", "green"),
     }
-    edges = [("t", "ev"), ("ev", "no", "no", None, "l", "r"), ("ev", "kp"), ("kp", "pa", "yes", None, "r", "l"), ("kp", "calls", "no"),
-             ("calls", "ru", "no", None, "l", "r"), ("calls", "ol", "yes"), ("ol", "ans", "", None, "r", "l"), ("ans", "q", "", [(450, 102), (265, 102)], "b", "t"),
-             ("q", "g", "yes", None, "r", "l"), ("q", "u", "no", [(265, 31)], "b", "l"), ("pa", "ru", "", [(450, 216), (72, 216)], "b", "t"), ("ru", "out", "", None, "b", "t"), ("u", "out", "", None, "l", "r")]
-    nodes["ans"] = N(380, 120, 140, 32, "Verdict / Root cause / Evidence\nOwner / Action / Acceptance", "blue")
-    s.append(Chart(540, 370, nodes, edges))
+    edges = [("t", "ev"), ("ev", "no", "none", None, "l", "r"), ("ev", "kp"), ("kp", "pa", "yes", None, "r", "l"), ("kp", "nk", "no"), ("nk", "out"), ("pa", "out", "", [(450, 27)], "b", "r")]
+    s.append(Chart(540, 270, nodes, edges))
     s += [Paragraph("Components", h2),
           tbl([["File", "Role"],
                ["utils/eksCollector.ts", "Live capture of pod and service logs of this run id; redacts secrets; writes eks-live (pods/, tools/, services.log, summary.json, run_summary.md)."],
                ["utils/eksReport.ts", "Per-tool status records: PASSED, FAILED, EMPTY_OUTPUT, NEVER_DISPATCHED, STUCK_WAITING, UNKNOWN."],
-               ["utils/eksPatterns.ts", "Known-pattern rules: workspace permission denied, OOMKilled, image pull, stuck run, CELL_CPU_CAPACITY at admission, and more."],
-               ["utils/eksDiagnose.ts", "Builds the RCA input block from the evidence; service JSON lines are compacted so tool_name and reason are kept; parses the RCA answer; checks the quoted line."],
-               ["utils/eksMentor.ts", "Calls Ollama; signature cache for repeated error text; at most 6 model calls per branch; checks the model first."],
-               ["utils/eksAnalyze.ts + qa-eks-mentor/analyze.py", "Always-on analysis for defective tools; one report per tool; reads cluster service logs when live logs are missing (weaker evidence)."],
-               ["utils/eksHistory.ts", "npm run eks:history: re-check a finished run from what the cluster still holds."],
-               ["utils/eksSetup.ts / eksLogin.ts", "npm run eks:setup: checks kubectl, AWS sign-in (qa-eks-ro) and the allowed IP."]],
-              [150, 382])]
+               ["utils/eksPatterns.ts", "The known-pattern rules (table below) and stuck-run detection."],
+               ["utils/eksDiagnose.ts", "Collects the evidence of one tool: its failure.json, the pod's exit reason and console lines, the service lines that name exactly this tool (planning lists are read for the tool's own entry); applies the patterns; otherwise returns the lines as NO_KNOWN_PATTERN."],
+               ["utils/eksAnalyze.ts", "Cluster access helpers: the kubectl context qa-eks-ro, the key or profile, a reachability check."],
+               ["utils/eksFetch.ts, utils/eksOnlyRca.ts", "The eks step (download a run's saved eks-live from SharePoint) and the root causes written when the S3 check failed."],
+               ["utils/eksHistory.ts, eksSetup.ts, eksLogin.ts", "npm run eks:history (re-check a finished run), npm run eks:setup (kubectl, AWS sign-in, allowed IP), the browser sign-in."]],
+              [150, 382]),
+          Paragraph("Known patterns (utils/eksPatterns.ts)", h2),
+          tbl([["Pattern id", "What the log says", "Owner named in the report"],
+               ["workspace-permission-denied", "failure.json or console: Permission denied (Errno 13) under /workspaces/...", "Platform (workspace permissions of the runner)"],
+               ["cell-cpu-capacity", "dispatch.admission_rejected_task with reason CELL_CPU_CAPACITY", "Platform (cell CPU capacity / admission)"],
+               ["runtime-unavailable-unplaceable", "planning.tools_unplaceable lists the tool with reason EXECUTION_RUNTIME_UNAVAILABLE and a detail", "Platform (orchestrator planning / runtime availability)"],
+               ["tool-readiness-blocked", "worker.tool_readiness_blocked_execution for the tool (readiness_status, skip_reason such as MISSING_BINARY)", "Platform (worker startup check / tool installation)"],
+               ["planning-skipped-startup-readiness", "planning.tools_skipped_startup_readiness lists the tool in skipped_tools", "Platform (orchestrator planning / startup readiness)"],
+               ["ran-but-excluded", "the checker says the tool ran although the matrix of this version excludes it", "Platform (planning / compatibility matrix)"],
+               ["pod-completed-no-output", "the tool's pod ended Completed, but S3 has no result for it", "Platform (tool runner result upload)"],
+               ["oom-killed, image-pull, stuck run", "OOMKilled (exit 137), ImagePullBackOff, a run that stayed waiting for a runtime", "Platform (runner limits / image registry / runtime)"]],
+              [150, 230, 152]),
+          Paragraph("A rule is added in eksPatterns.ts, with a unit test, each time the team solves a new case: the next run that hits it is explained at once. Earlier versions also wrote the explanation with a local Ollama model; it was removed on 3 Nov 2026 and is in the git history up to commit af4944b.", small)]
     s.append(PageBreak())
 
-    # ---------------- 5 Ollama
-    s += [Paragraph("5. Ollama: install, shared host and the model", h1),
-          Paragraph("Source: <font face='Courier'>utils/ollamaInstall.ts</font>, <font face='Courier'>ollamaHost.ts</font>, <font face='Courier'>eksModel.ts</font> and "
-                    "<font face='Courier'>qa-eks-mentor/model.json</font>. This runs by itself before the first model call, and by hand with <font face='Courier'>npm run model:setup</font>. "
-                    "A model is only a file: something must run it. That is Ollama, on this PC or on one shared PC.", body)]
-    nodes = {
-        "a": N(170, 440, 200, 26, "Model needed (first model call)", "gray", "round"),
-        "h": N(10, 386, 210, 44, "OLLAMA_HOST set to\nanother PC?", "amber", "dec"),
-        "sh": N(430, 380, 100, 56, "Shared host\nanswers and has\nthe model?", "amber", "dec"),
-        "su": N(430, 310, 100, 52, "Use it: nothing\ninstalled or\ndownloaded here", "green"),
-        "sw": N(430, 236, 100, 52, "Warning: rule-\nbased text, the\nrun carries on", "red"),
-        "f": N(10, 320, 210, 44, "Ollama found? (EKS_OLLAMA,\nPATH, per-user folder)", "amber", "dec"),
-        "au": N(10, 254, 210, 44, "Install allowed? Windows,\nnot OFF, 8 GB free", "amber", "dec"),
-        "st": N(290, 254, 150, 44, "Stop: the message says\nhow to install by hand", "red"),
-        "in": N(10, 190, 210, 44, "winget install Ollama.Ollama,\nelse official installer\n(signed by Ollama Inc. only)", "violet"),
-        "sv": N(10, 134, 210, 36, "Start ollama serve if it is down\n(waits while its updater runs)", "violet"),
-        "m": N(10, 74, 210, 44, "Model registered here with\nthe expected sha256?", "amber", "dec"),
-        "u": N(262, 74, 150, 44, "Use the model", "green"),
-        "d": N(10, 8, 210, 44, "Download the GGUF from SharePoint,\nverify sha256, ollama create", "violet"),
-    }
-    edges = [("a", "h"), ("h", "sh", "yes", None, "r", "l"), ("h", "f", "no"), ("sh", "su", "yes"), ("sh", "sw", "no", [(536, 408), (536, 262)], "r", "r"),
-             ("f", "au", "no"), ("f", "sv", "yes", [(245, 342), (245, 152)], "r", "r"), ("au", "in", "yes"), ("au", "st", "no", None, "r", "l"), ("in", "sv"),
-             ("sv", "m"), ("m", "u", "yes", None, "r", "l"), ("m", "d", "no"), ("d", "u", "", [(337, 30)], "r", "b")]
-    s.append(Chart(540, 470, nodes, edges))
-    s += [Paragraph("What the script does with Ollama", h2),
-          tbl([["Situation", "What happens"],
-               ["Ollama is found", "Used as it is; nothing is downloaded. Looked for in EKS_OLLAMA, on the PATH, in %LOCALAPPDATA%\\Programs\\Ollama and in Program Files."],
-               ["Ollama is missing (Windows)", "Installed per user, no administrator rights: winget first, otherwise the official installer from ollama.com/download, run silently only when its signature is valid and belongs to Ollama Inc. (otherwise deleted, never run). The installer is about 1.6 GB, so about 8 GB must be free; with less, the script says how much is free and stops."],
-               ["Installation off or other system", "OLLAMA_AUTO_INSTALL=off, or not Windows: a message says how to install it by hand; the run carries on with rule-based text."],
-               ["Shared host (OLLAMA_HOST=http://&lt;host PC&gt;:11434)", "Nothing is installed, started, downloaded or registered on this PC; the script only checks that the host answers and has the model. Host down: a warning and rule-based text."],
-               ["Model not registered", "Downloaded from the team SharePoint folder (qa-eks-model/) with the saved sp:login, sha256 checked, registered with ollama create from the Modelfile (about 1.9 GB, a few minutes, once per PC)."]],
-              [150, 382]),
-          Paragraph("Host PC for a shared model (once, only if the team shares one)", h2),
-          tbl([["Step", "What to do"],
-               ["1", "Install Ollama (the script does it), run npm run sp:login and npm run model:setup on that PC."],
-               ["2", "Set the Windows environment variable OLLAMA_HOST=0.0.0.0:11434 (listen on the network) and restart Ollama."],
-               ["3", "Allow inbound TCP 11434 in Windows Firewall for the private network; use a fixed address or name; keep the PC on while others run."],
-               ["4", "Everyone else puts OLLAMA_HOST=http://&lt;host PC&gt;:11434 in .env. Ollama has no login: use it only inside the office network or VPN. Calls queue one after another (about 5 s each)."]],
-              [40, 492])]
-    s.append(PageBreak())
-    s += [Paragraph("Training and promoting a new model (QA lead)", h2),
-          tbl([["Step", "What happens"],
-               ["1", "Collect examples with npm run teach (section 6): qa-eks-mentor/training/dataset.jsonl and holdout.jsonl, prompt in RCA_PROMPT.md."],
-               ["2", "Train on Google Colab (Unsloth QLoRA on Qwen2.5-3B-Instruct, free T4 GPU) and export a GGUF; training is never done on the team's PCs."],
-               ["3", "python qa-eks-mentor/register_model.py &lt;gguf&gt; registers it with the current prompt and tests it on the 5 prompt cases and on the holdout. --promote needs all 5, at least 70% of the holdout (HOLDOUT_MIN) and not less than the current model."],
-               ["4", "--promote writes model.json (name, version, sha256) and the Modelfile with the new prompt together. Upload the GGUF to the SharePoint folder qa-eks-model/ and commit model.json AND Modelfile. Every PC then downloads it, or the shared host is updated once."]],
-              [40, 492]),
-          Paragraph("Current state: the registered model passes the 5 prompt cases (5 of 5) but only 3 of 13 holdout cases under the new prompt: its weights never saw the verdict "
-                    "\"Rejected at admission\" and it is sensitive to prompt wording. The dataset has 21 training examples, so a retrain is the biggest quality gain. "
-                    "Until then the known-pattern rules and the real log lines carry the reports. The repo Modelfile keeps the deployed prompt until a promotion.", small)]
-    s.append(PageBreak())
-
-    # ---------------- 6 teach and validate
-    s += [Paragraph("6. Teach the model and validate a folder", h1),
-          Paragraph("Chatting with a model does not change it: answers have to become training examples and the model has to be retrained. "
-                    "<font face='Courier'>npm run teach</font> makes the examples. <font face='Courier'>npm run validate</font> checks a folder of tool results without a test run.", body),
-          Paragraph("Teaching (npm run teach)", h2)]
-    nodes = {
-        "a": N(8, 96, 112, 40, "Real runs\n(results folders)", "gray"), "b": N(144, 96, 112, 40, "teach seed: rules write\nthe sure cases", "teal"),
-        "c": N(280, 96, 112, 40, "teach review: model\nanswers, you decide", "violet"), "d": N(416, 96, 112, 40, "dataset.jsonl (train)\nholdout.jsonl (test)", "blue"),
-        "e": N(8, 14, 112, 40, "Colab: QLoRA training,\nexport GGUF", "amber"), "f": N(144, 14, 112, 40, "register_model.py:\n5 cases + holdout", "teal"),
-        "g": N(280, 14, 112, 40, "--promote: model.json\n+ Modelfile together", "green"), "h": N(416, 14, 112, 40, "Upload GGUF to\nSharePoint, commit", "green"),
-    }
-    edges = [("a", "b", "", None, "r", "l"), ("b", "c", "", None, "r", "l"), ("c", "d", "", None, "r", "l"), ("d", "e", "", [(472, 75), (64, 75)], "b", "t"),
-             ("e", "f", "", None, "r", "l"), ("f", "g", "", None, "r", "l"), ("g", "h", "", None, "r", "l")]
-    s.append(Chart(540, 150, nodes, edges))
-    s += [tbl([["Command", "What it does"],
-               ["npm run teach -- seed --all (or a branch folder)", "Writes the cases the prompt's rules settle with certainty: readiness block, planning exclusion, admission rejection, handler or failure.json failure, no evidence, tool with output. It keeps the mix RCA_PROMPT.md asks for: at most 35% Insufficient evidence, 10% No RCA needed, 3 examples per pattern. About one case in six goes to holdout.jsonl (tested, never trained on). A second run adds nothing (--dry shows counts only)."],
-               ["npm run teach -- review &lt;folder&gt;", "The cases the rules cannot settle: shows the input, the model's answer and the prompt checks; [a]ccept, [e]dit (type the right answer, end with a line containing a dot), [s]kip, [q]uit. Saved only after the checks: template, allowed verdict, 120 words, no speculation, every identifier in the input."],
-               ["npm run teach -- stats", "The dataset against the target mix (at least 30% no-evidence cases)."]],
-              [150, 382]),
-          Paragraph("Validating a folder of tool results (npm run validate)", h2)]
+    # ---------------- 5 validate
+    s += [Paragraph("5. Validate a folder of tool results", h1),
+          Paragraph("<font face='Courier'>npm run validate</font> checks a folder of tool results without a test run and without AWS keys.", body)]
     nodes = {
         "a": N(2, 30, 96, 44, "Tool folder\n<tool>/<id>/0/<file>", "gray"), "b": N(112, 30, 96, 44, "Local reader\n(serves it like S3)", "violet"),
-        "c": N(222, 30, 96, 44, "Same checker as\nthe S3 step:\nPASS / EMPTY / FAIL", "teal"), "d": N(332, 30, 96, 44, "Problem tools:\nrules first, then\nthe model", "blue"),
-        "e": N(442, 30, 96, 44, "validation-report.pdf\n(RULE / MODEL tags)", "green"),
+        "c": N(222, 30, 96, 44, "Same checker as\nthe S3 step:\nPASS / EMPTY / FAIL", "teal"), "d": N(332, 30, 96, 44, "Tools that did not\npass: their file's\nnote + rule diagnosis", "blue"),
+        "e": N(442, 30, 96, 44, "validation-report.pdf\n(and .md)", "green"),
     }
     edges = [("a", "b", "", None, "r", "l"), ("b", "c", "", None, "r", "l"), ("c", "d", "", None, "r", "l"), ("d", "e", "", None, "r", "l")]
     s.append(Chart(540, 90, nodes, edges))
     s += [tbl([["Question", "Answer"],
-               ["How", "npm run validate -- \"&lt;tool folder&gt;\" [--model] [--repo owner/name] [--run-id id]. The folder name is the branch name: its prefix and version (PY_V36..., JV_V17...) decide the language and the tool matrix. No test run, no AWS keys."],
-               ["Output", "results/validate_&lt;time&gt;/&lt;name&gt;/validation-report.pdf (the checker's table and the root causes, every answer tagged RULE or MODEL), plus validation-report.md, s3-check.json and s3-evidence/."],
-               ["The model", "Called only for cases the rules cannot settle; --model asks it for every problem tool and shows both answers, each checked against the prompt. It sees text only: a pasted folder path means nothing to it."],
-               ["Limit", "Only the tool files are known (no run id, no EKS logs), so most 'not triggered' tools end as Insufficient evidence."]],
+               ["How", "npm run validate -- \"&lt;tool folder&gt;\" [--repo owner/name] [--run-id id]. The folder name is the branch name: its prefix and version (PY_V36..., JV_V17...) decide the language and the tool matrix."],
+               ["Output", "results/validate_&lt;time&gt;/&lt;name&gt;/validation-report.pdf: the checker's table and the tools that did not pass, with what their own file says and a rule diagnosis when the folder holds a failure.json; plus validation-report.md, s3-check.json and s3-evidence/."],
+               ["Limit", "Only the tool files are known (no run id, no EKS logs): a tool that never produced a folder can only be reported as not triggered."]],
               [90, 442])]
     s.append(PageBreak())
 
     # ---------------- 6 without execution
-    s += [Paragraph("7. Processing a run without executing it", h1),
+    s += [Paragraph("6. Processing a run without executing it", h1),
           Paragraph("Use this when the run already happened (on this PC or another) and you have its ids. Example: the Java run JV_V17_MAVEN_THINJAR_MICRO.", body)]
     nodes = {
         "a": N(170, 280, 200, 30, "Run ids: run_id, tenant, project,\nrepository, branch, commit", "gray", "round"),
@@ -385,20 +314,20 @@ def build():
                ["Was the live capture used for the Java run?", "Not at first: the first pass used the weaker cluster-log read. After the SharePoint eks-live was downloaded, 29 bug drafts were rebuilt from it."],
                ["What did the real logs show?", "10 tools were never started: dispatch.admission_rejected_task, reason CELL_CPU_CAPACITY (checkstyle, cpd, jacoco, java-perf-dependency, maven-checksum, maven-versions, owasp-depcheck, pitest, pmd, spotbugs). pydriller failed with Permission denied under /workspaces."],
                ["What if S3 fails?", "With the run's eks-live: root causes are written from the EKS logs alone (eks-rca/) and SharePoint and Teams still go out, the card saying S3 was not available. Without eks-live: nothing is sent. Either way, put fresh AWS keys in .env and run the same command again for the full report."],
-               ["Only a folder of tool files, no run id?", "Use npm run validate (section 6): it needs neither a run id nor AWS keys, and writes a PDF."]],
+               ["Only a folder of tool files, no run id?", "Use npm run validate (section 5): it needs neither a run id nor AWS keys, and writes a PDF."]],
               [150, 382])]
     s.append(PageBreak())
 
     # ---------------- 7 automatic vs manual
-    s += [Paragraph("8. Automatic and manual: who does what", h1),
+    s += [Paragraph("7. Automatic and manual: who does what", h1),
           Paragraph("<b>Automatic</b> = the script does it by itself once a run starts. <b>Manual</b> = a person must do it (once, when it expires, or each time).", body)]
     nodes = {
         "m1": N(10, 150, 120, 44, "MANUAL, one-time setup\nsign-ins, AWS keys, .env,\nbuilds.json", "amber"),
         "m2": N(150, 150, 110, 44, "MANUAL: start\nnpm test / queue start", "amber"),
         "a1": N(280, 150, 120, 44, "AUTOMATIC\npre-flight, browser run,\nEKS capture, guards", "green"),
-        "a2": N(420, 150, 105, 44, "AUTOMATIC\nOllama, S3, drafts,\nSharePoint, Teams", "green"),
+        "a2": N(420, 150, 105, 44, "AUTOMATIC\nS3, drafts, root\ncauses, SharePoint, Teams", "green"),
         "m3": N(150, 60, 150, 44, "MANUAL: when something fails\nnew AWS keys, re-run npm run post", "amber"),
-        "m4": N(330, 60, 190, 44, "MANUAL: judgement\nread results, file Jira bugs,\ntrain and promote a new model", "amber"),
+        "m4": N(330, 60, 190, 44, "MANUAL: judgement\nread results, file Jira bugs,\nadd rules for new cases", "amber"),
     }
     edges = [("m1", "m2", "", None, "r", "l"), ("m2", "a1", "", None, "r", "l"), ("a1", "a2", "", None, "r", "l"),
              ("a2", "m4", "", [(472, 127), (425, 127)], "b", "t"), ("a2", "m3", "", [(472, 127), (225, 127)], "b", "t")]
@@ -412,10 +341,8 @@ def build():
                ["eks fetch", "Downloads the run's eks-live from SharePoint when it is not on this PC", "sp:login saved; the run was captured"],
                ["S3 check", "Reads evidence, judges every tool, writes s3-check.json; retries network problems after 30 s, 90 s, 3 min", "AWS keys valid"],
                ["Bug drafts", "PDF, HTML and Jira text per defective tool, with Action and Acceptance", "BUG_REPORTS not off"],
-               ["Root cause", "Known-pattern rules first, then the Ollama model (6 calls per branch, cache), then the quoted-line check", "EKS_AUTO=on"],
-               ["Pre-flight check", "Reads what is missing (keys, sign-ins, Ollama, cluster) and what it would skip; saves preflight.json", "Second step of npm test; PREFLIGHT not off"],
-               ["Ollama", "Finds Ollama, or installs it per user (winget, else the signed official installer, 8 GB free needed), starts the server; or uses the shared host", "Windows; OLLAMA_AUTO_INSTALL not off; no OLLAMA_HOST"],
-               ["Model", "Downloads the GGUF from SharePoint, verifies the sha256 and registers it on the first model call (not with a shared host)", "sp:login saved"],
+               ["Root cause", "Known-pattern rules over the real log lines (eks-live, failure.json); the lines are attached when no rule matches", "EKS_AUTO=on"],
+               ["Pre-flight check", "Reads what is missing (keys, sign-ins, cluster) and what it would skip; saves preflight.json", "Second step of npm test; PREFLIGHT not off"],
                ["Timings and summaries", "timings.xlsx per branch, summary.md per round, warnings.log; dry run when asked", "Always; POST_DRYRUN for the preview"],
                ["History", "Reads the earlier run of the branch from SharePoint", "sp:login saved"],
                ["SharePoint copy", "Uploads the branch folder; uses _RUN2, _RUN3 if the folder exists", "S3 step did not fail"],
@@ -428,20 +355,19 @@ def build():
                ["AWS S3 keys", "AWS access portal, QA-S3-Readonly, copy the 3 values into .env", "Every few hours (they expire)"],
                ["EKS access", "aws sso login --profile qa-eks-ro, allowed IP; check with npm run eks:setup", "When the sign-in or IP changes"],
                ["Read the pre-flight lines", "npm run preflight: fix the FAIL lines (usually AWS keys or a sign-in) before a long run", "Before each run"],
-               ["Ollama host (only if shared)", "One PC runs Ollama with the model and listens on the network; the others set OLLAMA_HOST in .env (section 5)", "Once"],
                ["Branch list and settings", "Edit builds.json and .env (Teams webhook, EKS_AUTO, POSTPROCESS and others)", "When branches or settings change"],
                ["Start the run", "npm test, or npm run queue and the owner types start", "Each run"],
                ["Process a run not executed here", "Create run-details.json from the ids, then npm run post -- \"&lt;folder&gt;\" --repo owner/name", "Each time"],
                ["Re-run after a failed step", "Fix the cause (usually new AWS keys), run npm run post again", "When S3 or another step fails"],
                ["Read results and file bugs", "Review the PDFs and Jira text; the script writes drafts but does not create Jira tickets", "Each run"],
                ["Clean up duplicates", "Delete empty Teams cards and unwanted _RUNn folders; the script cannot delete them", "When they appear"],
-               ["Teach and retrain the model", "QA lead: npm run teach (review the cases), train on Colab, register_model.py --promote, upload the GGUF, commit model.json and Modelfile", "When a model is retrained"],
+               ["Add a rule for a new case", "Developer: when the team solves a new platform cause, add a rule in utils/eksPatterns.ts with a unit test; the next run that hits it is explained at once", "When a new cause is found"],
                ["Commit and push", "git add by name, commit, push to dev", "When code changes"]],
               [120, 296, 116])]
     s.append(PageBreak())
 
     # ---------------- 8 reference
-    s += [Paragraph("9. Reference", h1), Paragraph("Commands", h2),
+    s += [Paragraph("8. Reference", h1), Paragraph("Commands", h2),
           tbl([["Command", "Purpose"],
                ["npm test", "Run the browser flow for the branches in builds.json"],
                ["npm run setup", "Save the platform sign-in (auth.setup.ts)"],
@@ -450,23 +376,18 @@ def build():
                ["npm run sp:login", "Save the SharePoint sign-in used for upload, download and history"],
                ["npm run eks:setup", "Check kubectl, AWS sign-in and IP for the QA EKS cluster"],
                ["npm run eks:history -- \"&lt;folder&gt;\"", "Re-check a finished run from what the cluster still holds (read only)"],
-               ["npm run model:setup", "Install Ollama if it is missing (Windows), then download, verify and register the model on this PC"],
-               ["npm run preflight", "What is missing (keys, sign-ins, Ollama, cluster) and what it skips; also runs at the start of npm test"],
+               ["npm run preflight", "What is missing (keys, sign-ins, cluster) and what it skips; also runs at the start of npm test"],
                ["npm run post -- \"&lt;folder&gt;\" --dry-run", "Same as post, but the SharePoint copy and the Teams card are only previewed"],
-               ["npm run teach -- seed | review | stats", "Training examples from real runs (section 6)"],
-               ["npm run validate -- \"&lt;tool folder&gt;\" [--model]", "Validate a folder of tool results; validation-report.pdf (section 6)"],
+               ["npm run validate -- \"&lt;tool folder&gt;\"", "Validate a folder of tool results; validation-report.pdf (section 5)"],
                ["npm run check", "Type check and unit tests (also run by GitHub on every push)"],
                ["npm run parallel", "Run several branches in parallel"],
                ["npm run queue / npm run status", "Team queue server (another developer's) / read-only status page"]],
               [190, 342]),
           Paragraph("Settings (.env)", h2),
           tbl([["Setting", "Meaning"],
-               ["EKS_AUTO=on", "QA EKS analysis and live capture on (keep on: the model output is the main value)"],
+               ["EKS_AUTO=on", "QA EKS analysis and live capture on (keep on: the root causes come from the live logs)"],
                ["EKS_LIVE=off", "Turns off only the live collector"],
-               ["EKS_MODEL_FILE / EKS_MODEL_URL", "SharePoint location of the model GGUF"],
                ["AWS_ACCESS_KEY_ID / SECRET / SESSION_TOKEN", "QA-S3-Readonly keys for the S3 check (expire in hours)"],
-               ["OLLAMA_HOST", "Empty = Ollama on this PC; http://&lt;host PC&gt;:11434 = one shared model server (nothing is installed on this PC)"],
-               ["OLLAMA_AUTO_INSTALL=off", "The script does not install Ollama by itself"],
                ["PREFLIGHT=strict | off", "Stop the run on a FAIL of the pre-flight check / skip the check"],
                ["POST_DRYRUN=1", "Preview the SharePoint copy and the Teams card, send nothing"],
                ["TEAMS_RESEND=1", "Send a second complete Teams card for the same run"],
@@ -489,13 +410,12 @@ def build():
               [190, 342]),
           Paragraph("Proven and not proven", h2),
           tbl([["Proven", "Not proven yet"],
-               ["Model download, sha256 check and registration on a clean copy (99 s).<br/>eks fetch from SharePoint: 148 files, identical to a manual download.<br/>"
-                "Post-processing of the Java run from ids only, with 29 bug drafts from real pod logs.<br/>Validation of a real tool folder to a PDF (PASS 6, FAIL 19).<br/>"
-                "A shared model server through a stand-in address, including a host that is down.<br/>Ollama detection, the installer signature check and every install branch on a simulated PC.<br/>"
-                "42 unit tests; the GitHub check runs the type check and the tests on every push.",
-                "A full browser run with all of today's changes (pre-flight, eks fetch, timings) in one go.<br/>A real Ollama installation on a PC without it, and a real second PC using a shared host.<br/>"
-                "A newly trained model: the registered one passes 5 of 5 prompt cases but 3 of 13 holdout cases under the new prompt.<br/>Live EKS capture from every PC (the cluster needs the AWS sign-in and an allowed IP).<br/>"
-                "Python tools listed in a Java run are real [Language Contamination] defects by design (the platform produced results for foreign tools).<br/>Model answers for tools whose log lines carry no detail (for example semgrep)."]],
+               ["Post-processing of the Java run from ids only, with 29 bug drafts from real pod logs.<br/>eks fetch from SharePoint: 148 files, identical to a manual download.<br/>"
+                "Validation of a real tool folder to a PDF (PASS 6, FAIL 19).<br/>The whole flow on a saved Python run without any model (dry run): 8 of 10 problem tools get an exact known-pattern cause.<br/>"
+                "18 unit tests; the GitHub check runs the type check and the tests on every push.",
+                "A full browser run with all recent changes (pre-flight, eks fetch, timings) in one go.<br/>Live EKS capture from every PC (the cluster needs the AWS sign-in and an allowed IP).<br/>"
+                "Known patterns cover only causes the team has seen; for others the real log lines are attached and a person reads them.<br/>"
+                "Python tools listed in a Java run are real [Language Contamination] defects by design (the platform produced results for foreign tools)."]],
               [266, 266], head=True)]
 
     doc = SimpleDocTemplate(OUT, pagesize=letter, leftMargin=40, rightMargin=40, topMargin=48, bottomMargin=44, title="Testable Whitebox Automation: Full Workflow Guide")
@@ -512,7 +432,7 @@ def build():
                 self.__dict__.update(st)
                 if self._pageNumber > 1:
                     self.setFont("Helvetica", 8); self.setFillColor(GRAY)
-                    self.drawString(40, 755, "Testable Whitebox Automation  .  Full Workflow Guide"); self.drawRightString(572, 755, "dev branch  .  9e68f25")
+                    self.drawString(40, 755, "Testable Whitebox Automation  .  Full Workflow Guide"); self.drawRightString(572, 755, "dev branch  .  af4944b+")
                     self.setStrokeColor(BORDER); self.line(40, 748, 572, 748); self.line(40, 40, 572, 40)
                     self.drawString(40, 30, "Run, post-process, explain with logs, share"); self.drawRightString(572, 30, f"Page {self._pageNumber} of {len(self._pages)}")
                 canvas.Canvas.showPage(self)

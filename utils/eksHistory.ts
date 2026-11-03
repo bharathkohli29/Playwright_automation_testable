@@ -9,8 +9,8 @@ import { liveEvidence, liveDiagnosis } from './eksDiagnose';
  * Re-checks a FINISHED run:   npm run eks:history -- "results\<round>\<branch folder>"
  *  1. if the cluster is reachable it reads what the cell services still hold about this run (their logs live as long as the pod; the tool pods
  *     themselves are already gone) and saves the lines to <branch folder>\eks-live\services.log
- *  2. for every tool the S3 check marked FAIL / EMPTY it gathers the real evidence (the tool's failure.json from S3, those service lines) and asks the
- *     local model, exactly like the bug drafts do
+ *  2. for every tool the S3 check marked FAIL / EMPTY it gathers the real evidence (the tool's failure.json from S3, those service lines) and answers it with
+ *     the rules of eksPatterns.ts, exactly like the bug drafts do
  *  3. prints the result and writes <branch folder>\eks-live\diagnosis-history.md
  * Read-only. Never changes the branch's reports.
  */

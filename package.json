@@ -2,7 +2,9 @@
   "name": "testable-merge-flow",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "playwright test",
     "setup": "playwright test tests/auth.setup.ts",
@@ -13,12 +15,10 @@
     "parallel": "tsx utils/parallelRun.ts",
     "eks:setup": "tsx utils/eksSetup.ts",
     "eks:history": "tsx utils/eksHistory.ts",
-    "model:setup": "tsx utils/eksModel.ts",
     "preflight": "tsx utils/preflight.ts",
-    "teach": "tsx utils/teach.ts",
     "validate": "tsx utils/validateFolder.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test:unit": "node --import tsx --test unit/logic.test.ts unit/teach.test.ts unit/validate.test.ts unit/ollamaHost.test.ts unit/ollamaInstall.test.ts",
+    "test:unit": "node --import tsx --test unit/logic.test.ts unit/evidence.test.ts unit/validate.test.ts",
     "check": "npm run typecheck && npm run test:unit",
     "status": "tsx status-dashboard/server.ts"
   },

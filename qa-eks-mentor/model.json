@@ -1,7 +1,0 @@
-{
-  "name": "qa-eks-mentor-trained",
-  "version": "1",
-  "sha256": "7801781163f145f5afae2c0cca97f32ebaa140bf7afaea0b16a4bb983f1f539b",
-  "file": "Qwen2.5-3B-Instruct.Q4_K_M.gguf",
-  "url": "sharepoint:qa-eks-model/Qwen2.5-3B-Instruct.Q4_K_M.gguf"
-}

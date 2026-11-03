@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
 import './env'; // loads .env
 import { authFile, loginEmail, loginPassword, s3Root, TEST_ENV } from './env';
 import { loadBuilds } from './builds';
@@ -9,8 +8,6 @@ import { hasAwsCredentials } from './s3Evidence';
 import { sessionSaved, sessionFileRequest } from './sharepointSession';
 import { teamsEnabled } from './teams';
 import { eksAutoEnabled, eksClusterReady } from './eksAnalyze';
-import { isLocalOllama, ollamaModels, ollamaUrl } from './ollamaHost';
-import { findOllama } from './ollamaInstall';
 
 /**
  * Pre-flight check, run once before the first branch (npm test) or by hand (npm run preflight): looks at everything the run and its post-processing
@@ -65,33 +62,6 @@ function checkTeams(): Check {
     : { name: 'Teams webhook', level: 'WARN', message: 'TEAMS_WEBHOOK_URL is empty', effect: 'no Teams message is sent', fix: 'put the channel webhook in .env' };
 }
 
-async function checkOllama(): Promise<Check> {
-  if (!eksAutoEnabled()) return { name: 'Ollama model', level: 'WARN', message: 'EKS_AUTO is off', effect: 'no QA EKS analysis and no model text in the bug drafts', fix: 'set EKS_AUTO=on in .env' };
-  let want0 = clean(process.env.OLLAMA_QA_MODEL) || 'qa-eks-mentor-trained';
-  try { want0 = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'qa-eks-mentor', 'model.json'), 'utf8').replace(/^﻿/, '')).name || want0; } catch { /* default */ }
-  if (!isLocalOllama()) { // a SHARED model server: nothing is installed on this PC, only the server and its model are checked
-    const names = await ollamaModels();
-    if (!names) return { name: 'Ollama model', level: 'WARN', message: `the shared Ollama at ${ollamaUrl()} does not answer`, effect: 'no model text: the reports use the rules and the log lines only', fix: 'check that the host PC is on and Ollama runs there, that port 11434 is open to your PC, and the address in OLLAMA_HOST' };
-    return names.some((t) => t === want0 || t === `${want0}:latest`)
-      ? { name: 'Ollama model', level: 'OK', message: `shared Ollama at ${ollamaUrl()} is up, model ${want0} is registered there (nothing to install on this PC)` }
-      : { name: 'Ollama model', level: 'WARN', message: `shared Ollama at ${ollamaUrl()} is up but does not have the model ${want0}`, effect: 'no model text until the host has it', fix: 'the PC that hosts Ollama runs  npm run model:setup  (or ask the QA lead)' };
-  }
-  let tags: string[] = [];
-  try { const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(3000) }); tags = ((await r.json()) as any).models?.map((m: any) => String(m.name)) || []; }
-  catch {
-    if (findOllama()) return { name: 'Ollama model', level: 'OK', message: 'Ollama is installed but not running; the run starts it by itself at the first model call' };
-    const auto = !/^(off|no|0|false)$/i.test(clean(process.env.OLLAMA_AUTO_INSTALL)) && process.platform === 'win32';
-    return auto
-      ? { name: 'Ollama model', level: 'WARN', message: 'Ollama is not installed on this PC', effect: 'it is installed automatically at the first model call (winget or the official signed installer, per user, no administrator rights; about 1.6 GB download, a few minutes), then the model (about 1.9 GB) is downloaded', fix: 'to do it now: npm run model:setup (needs about 8 GB free disk)' }
-      : { name: 'Ollama model', level: 'WARN', message: 'Ollama is not installed on this PC', effect: 'no model text: the reports use the rules and the log lines only', fix: 'install Ollama from ollama.com once, then npm run model:setup (automatic installation is off or not available here)' };
-  }
-  let want = clean(process.env.OLLAMA_QA_MODEL) || 'qa-eks-mentor-trained';
-  try { want = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'qa-eks-mentor', 'model.json'), 'utf8').replace(/^﻿/, '')).name || want; } catch { /* default */ }
-  return tags.some((t) => t === want || t === `${want}:latest`)
-    ? { name: 'Ollama model', level: 'OK', message: `Ollama is up, model ${want} is registered` }
-    : { name: 'Ollama model', level: 'WARN', message: `Ollama is up, model ${want} is not registered on this PC`, effect: 'it is downloaded from SharePoint at the first model call (about 1.9 GB, needs the SharePoint sign-in)', fix: 'run  npm run model:setup  now to get it over with' };
-}
-
 async function checkEks(): Promise<Check> {
   if (!eksAutoEnabled()) return { name: 'QA EKS cluster', level: 'WARN', message: 'EKS_AUTO is off', effect: 'no live log capture', fix: 'set EKS_AUTO=on in .env' };
   let note = ''; const ok = await eksClusterReady((m) => { note = m; });
@@ -102,7 +72,7 @@ async function checkEks(): Promise<Check> {
 export async function runPreflight(): Promise<Check[]> {
   const safe = async (name: string, f: () => Promise<Check> | Check): Promise<Check> => { try { return await f(); } catch (e) { return { name, level: 'WARN', message: `check itself failed (${first(String((e as Error).message))})` }; } };
   return [await safe('Branch list', checkBuilds), await safe('Platform login', checkLogin), await safe('AWS S3 keys', checkAws), await safe('SharePoint sign-in', checkSharePoint),
-    await safe('Teams webhook', checkTeams), await safe('Ollama model', checkOllama), await safe('QA EKS cluster', checkEks)];
+    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks)];
 }
 
 export function printPreflight(cs: Check[]): void {

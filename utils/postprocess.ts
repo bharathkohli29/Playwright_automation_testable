@@ -88,7 +88,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   await step('history', async () => { const r = await attachPreviousFromSharePoint(job.branchDir); return r === 'skipped' ? 'skipped' : r; });
   // An s3-check.json left by an EARLIER attempt of this folder would show old tool results under a "S3 not available" card: keep it aside.
   if (st.steps.s3 === 'failed') { try { const f = path.join(job.branchDir, 's3-check.json'); if (fs.existsSync(f)) { fs.renameSync(f, path.join(job.branchDir, 's3-check.previous.json')); console.log('  an older s3-check.json was kept as s3-check.previous.json (it is not the result of this attempt)'); } } catch { /* ignore */ } }
-  // A failed S3 step has two cases. With the run's live QA EKS capture (eks-live) the root causes are still written from it by the model, and the
+  // A failed S3 step has two cases. With the run's live QA EKS capture (eks-live) the root causes are still written from it by the rules, and the
   // copy and the Teams card go out with them (without S3 tool results; the card says so). Without eks-live the folder and the card would carry no
   // tool data at all, only an empty "success", so both are skipped: fix the cause (usually expired AWS keys in .env) and run  npm run post -- "<branch folder>"  again.
   const s3Failed = st.steps.s3 === 'failed';

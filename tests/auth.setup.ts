@@ -15,7 +15,7 @@ setup('QA EKS sign-in', async () => {
   await ensureEksSignedIn();
 });
 
-// Pre-flight check: what is missing (AWS keys, SharePoint sign-in, Ollama, cluster ...) and what that skips, shown before the first branch.
+// Pre-flight check: what is missing (AWS keys, SharePoint sign-in, cluster ...) and what that skips, shown before the first branch.
 // Only reports; PREFLIGHT=strict stops the run on a FAIL, PREFLIGHT=off skips it. Same check by hand: npm run preflight
 setup('pre-flight check', async () => {
   setup.setTimeout(3 * 60_000);

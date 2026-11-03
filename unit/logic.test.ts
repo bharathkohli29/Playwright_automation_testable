@@ -5,7 +5,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { verdict, analyseJson, analyseXml } from '../utils/s3Check';
 import { matchToolPattern } from '../utils/eksPatterns';
-import { parseReportMarkdown } from '../utils/eksMentor';
 import { dryTeams, dryRun } from '../utils/dryRun';
 import { serviceProblems } from '../utils/eksOnlyRca';
 import { warn, warningCount } from '../utils/warn';
@@ -34,26 +33,6 @@ test('known patterns: workspace permission, CELL_CPU_CAPACITY, OOMKilled, and no
   assert.equal(matchToolPattern({ tool: 'cpd', text: 'WARNING wb-orchestrator: dispatch.admission_rejected_task (tool_name=cpd reason=CELL_CPU_CAPACITY)' })?.id, 'cell-cpu-capacity');
   assert.equal(matchToolPattern({ tool: 'x', text: '', podReason: 'OOMKilled', exitCode: 137 })?.id, 'oom-killed');
   assert.equal(matchToolPattern({ tool: 'x', text: 'everything fine' }), null);
-});
-
-test('RCA answer parser reads the bullet form of Evidence too', () => {
-  const r = parseReportMarkdown(['Verdict: GROUNDED', 'Root cause: x', 'Evidence:', '- first line', '- second line', 'Owner: platform', 'Action: y'].join('\n'));
-  assert.equal(r.evidence, 'first line; second line');
-});
-
-test('RCA answer parser reads an inline Evidence line too', () => {
-  const r = parseReportMarkdown(['Verdict: GROUNDED', 'Root cause: x', 'Evidence: no space left on device', 'Owner: platform'].join('\n'));
-  assert.equal(r.evidence, 'no space left on device');
-});
-
-test('RCA answer parser reads the six fields', () => {
-  const r = parseReportMarkdown('Verdict: GROUNDED\nRoot cause: disk full on the node\nEvidence: no space left on device\nOwner: platform\nAction: free disk space\nAcceptance: pod starts');
-  assert.equal(r.verdict, 'GROUNDED');
-  assert.equal(r.rootCause, 'disk full on the node');
-  assert.equal(r.evidence, 'no space left on device');
-  assert.equal(r.owner, 'platform');
-  assert.equal(r.action, 'free disk space');
-  assert.equal(r.acceptance, 'pod starts');
 });
 
 test('service lines: rejected / blocked / failed tools are found, INFO lines and other levels are ignored', () => {

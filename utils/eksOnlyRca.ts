@@ -2,12 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { buildRunReport, type ToolStatus } from './eksReport';
 import { liveDiagnosis } from './eksDiagnose';
-import type { EksAiDiagnosis } from './eksMentor';
+import type { EksAiDiagnosis } from './eksDiagnose';
 
 /**
  * Root causes for a run whose S3 check FAILED (expired AWS keys, no S3 access) but whose live QA EKS capture (<branch folder>/eks-live) exists.
  * The tools that did not pass are taken from the EKS records only (pod states, orchestrator lines, planned tools); every one gets the same
- * answer path as the bug drafts: known pattern -> Ollama model -> quoted-line check (liveDiagnosis). Written to <branch folder>/eks-rca/
+ * answer path as the bug drafts: known patterns, by rules (liveDiagnosis). Written to <branch folder>/eks-rca/
  *   RCA_<tool>.md · eks_rca_summary.md · eks_rca.json
  * and returned as short lines for the Teams card. Never throws; returns null when there is no eks-live of this run.
  */
