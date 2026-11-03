@@ -14,6 +14,7 @@ Local only. Nothing is sent anywhere except to Ollama on this PC.
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -41,6 +42,7 @@ The tool is in one of these states:
 VERDICT MAPPING:
 - If STATE is OUTPUT: Output ONLY "No RCA needed: the tool produced output."
 - If worker.tool_readiness_blocked_execution is in logs: Verdict is "Blocked at startup"
+- If dispatch.admission_rejected_task names the tool: Verdict is "Rejected at admission"
 - If planning exclusion or compatibility_excluded is in logs: Verdict is "Excluded in planning"
 - If handler.failed or error is in logs: Verdict is "Tool failed"
 - If tool skipped itself: Verdict is "Skipped by the tool"
@@ -60,7 +62,7 @@ Evidence:
 
 OUTPUT TEMPLATE:
 RCA: <tool> - <STATE>
-Verdict: <Blocked at startup | Excluded in planning | Tool failed | Tool produced empty output | Skipped by the tool | Insufficient evidence>
+Verdict: <Blocked at startup | Excluded in planning | Rejected at admission | Tool failed | Tool produced empty output | Skipped by the tool | Insufficient evidence>
 Root cause: <one sentence>
 Evidence:
 - <time> <LEVEL> <service>: <message> (<key fields>)
@@ -264,10 +266,37 @@ def grade(answer, facts, must, banned):
     return bad
 
 
+def modelfile_with_system(text, system):
+    """the Modelfile text with its SYSTEM block replaced by `system`"""
+    return re.sub(r'SYSTEM """.*?"""', lambda _m: 'SYSTEM """' + system.strip() + '\n"""', text, count=1, flags=re.S)
+
+
+def load_holdout():
+    """cases written by `npm run teach` into training/holdout.jsonl: tested here, never trained on"""
+    f = HERE / "training" / "holdout.jsonl"
+    rows = []
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                rows.append((r["name"], r["input"], r["must"], BANNED_WORDS))
+    return rows
+
+
+HOLDOUT = load_holdout()
+HOLDOUT_MIN = float(os.environ.get("HOLDOUT_MIN", "0.7"))  # share of the holdout a new model must pass to be promoted
+
+
 def evaluate(models):
-    print(f"\nRCA Prompt Test Cases ({len(CASES)} from RCA_PROMPT.md); PASS = all required text present, template adhered, <=120 words, no speculation, no invented ids.\n")
+    totals = run_cases(models, CASES, f"RCA Prompt Test Cases ({len(CASES)} from RCA_PROMPT.md)")
+    hold = run_cases(models, HOLDOUT, f"Holdout cases ({len(HOLDOUT)} from training/holdout.jsonl, never trained on)") if HOLDOUT else {m: 0 for m in models}
+    return totals, hold
+
+
+def run_cases(models, cases, title):
+    print(f"\n{title}; PASS = all required text present, template adhered, <=120 words, no speculation, no invented ids.\n")
     totals = {m: 0 for m in models}
-    for name, input_block, must, banned in CASES:
+    for name, input_block, must, banned in cases:
         print(f"== {name}")
         for m in models:
             try:
@@ -278,7 +307,7 @@ def evaluate(models):
             bad = grade(a, input_block, must, banned)
             totals[m] += 0 if bad else 1
             print(f"  [{m}] {'PASS' if not bad else 'FAIL ' + '; '.join(bad)}  ({s:.1f}s)\n      {a[:260]!r}")
-    print("\nScore: " + ", ".join(f"{m} {totals[m]}/{len(CASES)}" for m in models))
+    print("\nScore: " + ", ".join(f"{m} {totals[m]}/{len(cases)}" for m in models))
     return totals
 
 
@@ -302,7 +331,9 @@ def main():
     print(f"  new file : {new_sha}\n  {CURRENT}: {cur_sha}")
     if new_sha == cur_sha:
         sys.exit("\nThese are the SAME weights as the model already registered: nothing new was trained. Not registering.")
-    mf = (HERE / "Modelfile").read_text(encoding="utf-8")
+    mf_repo = (HERE / "Modelfile").read_text(encoding="utf-8")
+    # the new model carries the CURRENT system prompt of this script (the one it was trained and is tested with), whatever the repo Modelfile still has
+    mf = modelfile_with_system(mf_repo, SYSTEM)
     mf = re.sub(r"^FROM .*$", lambda _m: "FROM " + str(p), mf, count=1, flags=re.M)
     with tempfile.NamedTemporaryFile("w", suffix=".Modelfile", delete=False, encoding="utf-8") as f:
         f.write(mf)
@@ -313,10 +344,12 @@ def main():
     if r.returncode != 0:
         sys.exit("ollama create failed")
     print(f"Registered {a.name}; weights {model_weights_sha(a.name)}")
-    totals = evaluate([CURRENT, a.name])
+    totals, hold = evaluate([CURRENT, a.name])
     if a.promote:
         if totals[a.name] < len(CASES) or totals[a.name] < totals[CURRENT]:
             sys.exit(f"\nNot promoted: {a.name} must pass all {len(CASES)} cases and not score below {CURRENT}.")
+        if HOLDOUT and (hold[a.name] < HOLDOUT_MIN * len(HOLDOUT) or hold[a.name] < hold[CURRENT]):
+            sys.exit(f"\nNot promoted: on the {len(HOLDOUT)} holdout cases {a.name} passed {hold[a.name]} (needs at least {HOLDOUT_MIN:.0%} and not below {CURRENT}, which passed {hold[CURRENT]}).")
         sh("ollama", "cp", CURRENT, CURRENT + "-prev")
         sh("ollama", "cp", a.name, CURRENT)
         print(f"\nPromoted: {CURRENT} is now {a.name}; the old one is kept as {CURRENT}-prev.")
@@ -324,7 +357,9 @@ def main():
         m = json.loads(mj.read_text(encoding="utf-8"))
         m.update({"version": str(int(m.get("version", "0")) + 1), "sha256": new_sha, "file": p.name})
         mj.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
-        print(f"model.json updated (version {m['version']}). Upload {p.name} to the address in model.json 'url', then commit model.json.")
+        # every PC builds the model from the repo Modelfile + these weights: the Modelfile must carry the prompt the new weights were trained with
+        (HERE / "Modelfile").write_text(modelfile_with_system(mf_repo, SYSTEM), encoding="utf-8")
+        print(f"model.json and Modelfile updated (version {m['version']}). Upload {p.name} to the address in model.json 'url', then commit model.json AND Modelfile together.")
     else:
         print(f"\nNot promoted (run again with --promote, or: ollama cp {a.name} {CURRENT}).")
 

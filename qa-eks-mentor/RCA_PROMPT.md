@@ -15,7 +15,7 @@ The tool is in one of these states:
 
 RULES
 1. Use only facts that are in the INPUT block. Copy tool names, service names, pod names, run ids, reason codes and timestamps exactly, character by character. Never retype them from memory.
-2. Quote at most 3 evidence lines, the ones that decide the cause. Prefer, in this order: a planning exclusion, a readiness block (worker.tool_readiness_blocked_execution), a handler failure (handler.failed) with its reason, any other ERROR, then WARNING.
+2. Quote at most 3 evidence lines, the ones that decide the cause. Prefer, in this order: a planning exclusion, a readiness block (worker.tool_readiness_blocked_execution), an admission rejection (dispatch.admission_rejected_task), a handler failure (handler.failed) with its reason, any other ERROR, then WARNING.
 3. If the evidence does not show the cause, the Verdict is "Insufficient evidence" and the Root cause says what is missing. Do not guess. Never write: probably, maybe, might, could be, likely, possibly, perhaps, transient, "customer repo".
 4. Owner: the platform component that the evidence names (a service or check). If no component is named, write "Unknown".
 5. Action: one line that follows directly from the evidence. If there is no evidence, the action is to collect the missing evidence.
@@ -25,7 +25,7 @@ RULES
 
 OUTPUT TEMPLATE (exactly these lines)
 RCA: <tool> - <STATE>
-Verdict: <Blocked at startup | Excluded in planning | Tool failed | Tool produced empty output | Skipped by the tool | Insufficient evidence>
+Verdict: <Blocked at startup | Excluded in planning | Rejected at admission | Tool failed | Tool produced empty output | Skipped by the tool | Insufficient evidence>
 Root cause: <one sentence>
 Evidence:
 - <time> <LEVEL> <service>: <message> (<key fields>)
@@ -54,6 +54,7 @@ POD STATE: <"all Running, 0 restarts" | the pods that need attention>
 |---|---|---|
 | NOT_TRIGGERED | planning exclusion for the tool | Excluded in planning |
 | NOT_TRIGGERED | worker.tool_readiness_blocked_execution for the tool | Blocked at startup |
+| NOT_TRIGGERED | dispatch.admission_rejected_task for the tool (its reason, for example CELL_CPU_CAPACITY, is in the line) | Rejected at admission |
 | NOT_TRIGGERED | nothing names the tool | Insufficient evidence |
 | FAILED | handler.failed with a reason for the tool | Tool failed |
 | EMPTY | handler.failed or an ERROR for the tool | Tool failed |

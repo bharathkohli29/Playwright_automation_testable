@@ -60,7 +60,9 @@ export function liveEvidence(branchDir: string, tool: string): LiveEvidence | nu
       if (pick.length) sources.push(`eks-live/${r.console_file.replace(/\\/g, '/')}`);
     }
     // 3. what the cell services said about this tool in this run (dispatch / wait / retry decisions)
-    const svc = tail(path.join(live, 'services.log'), 4000).filter((l) => l.toLowerCase().includes(tool.toLowerCase()) && (ERR.test(l) || /wait|retry|dispatch|skip/i.test(l))).slice(-4);
+    // the tool's NAME, not a piece of another name: 'cpd' must not pick up 'jscpd-py', 'ck' must not pick up 'check' or 'task_id'
+    const named = new RegExp(`(?<![A-Za-z0-9_-])${tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_-])`, 'i');
+    const svc = tail(path.join(live, 'services.log'), 4000).filter((l) => named.test(l) && (ERR.test(l) || /wait|retry|dispatch|skip/i.test(l))).slice(-4);
     for (const l of svc) lines.push(compactServiceLine(l));
     if (svc.length) sources.push('eks-live/services.log');
     const uniq = [...new Set(lines)].slice(0, 14);
@@ -81,6 +83,30 @@ function compactServiceLine(l: string): string {
     return `${String(j.timestamp || '').slice(11, 19)} ${j.level || ''} ${String(j.service_name || svc).replace('cell-001-', '')}: ${j.message || ''} (${f})`.slice(0, 300);
   } catch { return plain(); }
 }
+
+/**
+ * The RCA input block of qa-eks-mentor/RCA_PROMPT.md section 2. ONE function for the live diagnosis and for the training tool (npm run teach), so the
+ * model is trained on exactly the text it receives at run time.
+ */
+export function rcaInput(tool: string, runId: string, branchDir: string, ev: LiveEvidence, ctx?: { observed?: string; note?: string; version?: string; state?: string; s3?: string }): string {
+  const state = /empty|\[\]|\{\}/i.test(ctx?.observed || '') ? 'EMPTY' : /fail/i.test(ctx?.observed || '') ? 'FAILED' : /skip|not applicable/i.test(ctx?.observed || '') ? 'SKIPPED' : 'NOT_TRIGGERED';
+  return [
+    'INPUT', `TOOL: ${tool}`, `STATE: ${ctx?.state || state}`, `LANGUAGE: ${languageLabel(branchDir) || ctx?.version || 'unknown'}`, `BRANCH: ${path.basename(branchDir)}   RUN: ${runId}`,
+    `S3: ${ctx?.s3 ?? ((ctx?.observed || '') + ' ' + (ctx?.note || '')).trim().slice(0, 300)}`,
+    ...(ev.lines.length ? ['LOG EVIDENCE:', ...ev.lines] : ['LOG EVIDENCE: none']), `POD STATE: ${ev.podReason || 'not captured'}`,
+  ].join('\n').slice(0, 5200);
+}
+
+/** "typescript, Node 20" / "java, 17" as in the training examples, read from the branch's s3-check.json (the live path used to send only the bare version) */
+function languageLabel(branchDir: string): string {
+  const j = readJson(path.join(branchDir, 's3-check.json')); if (!j) return '';
+  const parts: string[] = [];
+  for (const k of ['python', 'javascript', 'typescript', 'csharp', 'java']) { const b = j[k]; if (b?.version) parts.push(`${k}, ${k === 'javascript' || k === 'typescript' ? 'Node ' : ''}${b.version}`); }
+  return parts.join('; ');
+}
+
+/** asks the registered model (the live path and the teach tool both use this) */
+export const askRcaModel = (prompt: string, ms = 120_000) => askModel(prompt, ms);
 
 async function askModel(prompt: string, ms: number): Promise<string | null> {
   if (!(await ensureEksModel())) return null; // model missing on this PC: the caller marks NO_MODEL and still returns the real log lines
@@ -115,12 +141,7 @@ export async function liveDiagnosis(tool: string, runId: string, branchDir: stri
     if (used >= maxCalls) return { ...base, verdict: `NOT_ANALYSED (limit of ${maxCalls} model calls per branch; the log lines are attached)` };
     calls.set(branchDir, used + 1);
     // the RCA input block of qa-eks-mentor/RCA_PROMPT.md (the system prompt is in the model's Modelfile): the model was trained on exactly this shape
-    const state = /empty|\[\]|\{\}/i.test(ctx?.observed || '') ? 'EMPTY' : /fail/i.test(ctx?.observed || '') ? 'FAILED' : /skip|not applicable/i.test(ctx?.observed || '') ? 'SKIPPED' : 'NOT_TRIGGERED';
-    const prompt = [
-      'INPUT', `TOOL: ${tool}`, `STATE: ${state}`, `LANGUAGE: ${ctx?.version || 'unknown'}`, `BRANCH: ${path.basename(branchDir)}   RUN: ${runId}`,
-      `S3: ${(ctx?.observed || '') + ' ' + (ctx?.note || '')}`.trim().slice(0, 300), 'LOG EVIDENCE:',
-      ...ev.lines, `POD STATE: ${ev.podReason || 'not captured'}`,
-    ].join('\n').slice(0, 5200);
+    const prompt = rcaInput(tool, runId, branchDir, ev, ctx);
     const ans = await askModel(prompt, (Number(process.env.EKS_LIVE_MODEL_SEC) || 120) * 1000);
     if (!ans) return { ...base, verdict: 'NO_MODEL (Ollama did not answer; the real log lines are attached)', rootCause: 'not analysed' };
     const rca = /^Verdict:/im.test(ans) ? parseReportMarkdown(ans) : null;
