@@ -9,6 +9,7 @@ import { sessionSaved, sessionFileRequest } from './sharepointSession';
 import { teamsEnabled } from './teams';
 import { eksAutoEnabled, eksClusterReady } from './eksAnalyze';
 import { rcaModelStatus } from './rcaWriter';
+import { dummyPrEnabled, dummyVia, tokenFor, findGh, realGh, ghRepoAccess, ghTokenCanWrite, ownerAndName } from './dummyCommit';
 
 /**
  * Pre-flight check, run once before the first branch (npm test) or by hand (npm run preflight): looks at everything the run and its post-processing
@@ -22,6 +23,29 @@ export type Level = 'OK' | 'WARN' | 'FAIL';
 export interface Check { name: string; level: Level; message: string; effect?: string; fix?: string }
 
 const clean = (s?: string) => (s || '').trim().replace(/^["']|["']$/g, '');
+
+/** DUMMY_PR=yes: can this PC make the new commit on every repo of the queue? (token + GitHub CLI, else this PC's git login) */
+function checkDummyCommit(): Check {
+  if (!dummyPrEnabled()) return { name: 'Dummy commit', level: 'OK', message: 'DUMMY_PR is off: the branches run on their latest commit (an already analysed commit may finish at once)' };
+  const repos = [...new Set(loadBuilds().map((b) => ownerAndName(b.repo)).filter((x): x is string => !!x))];
+  if (dummyVia() === 'git') return { name: 'Dummy commit', level: 'OK', message: `DUMMY_VIA=git: this PC's git login makes the commit on ${repos.length} repo(s) (access is only known when the push is tried)` };
+  const noToken = repos.filter((r) => !tokenFor(r.split('/')[0]));
+  if (noToken.length === repos.length) return { name: 'Dummy commit', level: 'WARN', message: 'no GH_TOKEN in .env: the commit is made with this PC\'s git login', effect: 'works only where this PC\'s git login can write; the push is only tried at the start of each branch', fix: 'put GH_TOKEN=<token> (or GH_TOKEN_<OWNER>=<token>) in .env' };
+  const gh = findGh();
+  if (!gh) return { name: 'Dummy commit', level: 'WARN', message: 'token found, but the GitHub CLI (gh) is not installed yet', effect: 'the script installs it with winget when the first branch starts (about a minute)', fix: 'nothing to do, or: winget install --id GitHub.cli' };
+  const bad: string[] = []; let soon = '';
+  for (const r of repos) {
+    const tk = tokenFor(r.split('/')[0]); if (!tk) { bad.push(`${r} (no token)`); continue; }
+    const a = ghRepoAccess(r, realGh(gh, tk));
+    if (!a.push) bad.push(`${r} (${a.error ? first(a.error) : 'no write access'})`);
+    else { const w = ghTokenCanWrite(r, realGh(gh, tk)); if (!w.ok) bad.push(`${r} (the token cannot write: ${first(w.error || '')})`); }
+    if (a.expires) { const days = Math.round((Date.parse(a.expires.replace(' UTC', 'Z').replace(' ', 'T')) - Date.now()) / 86_400_000); if (!isNaN(days) && days < 14 && !soon) soon = `the token expires in ${days} day(s) (${a.expires})`; }
+  }
+  if (bad.length) return { name: 'Dummy commit', level: 'WARN', message: `no write access through the token on: ${bad.slice(0, 4).join('; ')}${bad.length > 4 ? ' …' : ''}`, effect: 'those branches fall back to this PC\'s git login, or run on their old commit', fix: 'token settings: this repo selected, Contents = Read and write, Resource owner = the repo\'s owner (else a classic token with the repo scope), SSO authorized; or ask the repo owner for write access' };
+  if (soon) return { name: 'Dummy commit', level: 'WARN', message: soon, effect: 'after that date the dummy commit falls back to git', fix: 'make a new token and replace GH_TOKEN in .env' };
+  return { name: 'Dummy commit', level: 'OK', message: `GitHub CLI + token can write to all ${repos.length} repo(s)` };
+}
+
 const first = (s: string) => s.split('[')[0].replace(/\s+/g, ' ').trim().slice(0, 150);
 
 async function checkBuilds(): Promise<Check> {
@@ -81,7 +105,7 @@ async function checkRcaModel(): Promise<Check> {
 export async function runPreflight(): Promise<Check[]> {
   const safe = async (name: string, f: () => Promise<Check> | Check): Promise<Check> => { try { return await f(); } catch (e) { return { name, level: 'WARN', message: `check itself failed (${first(String((e as Error).message))})` }; } };
   return [await safe('Branch list', checkBuilds), await safe('Platform login', checkLogin), await safe('AWS S3 keys', checkAws), await safe('SharePoint sign-in', checkSharePoint),
-    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks), await safe('RCA model', checkRcaModel)];
+    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks), await safe('RCA model', checkRcaModel), await safe('Dummy commit', checkDummyCommit)];
 }
 
 export function printPreflight(cs: Check[]): void {

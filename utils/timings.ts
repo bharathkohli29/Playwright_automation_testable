@@ -19,9 +19,23 @@ const readJson = (f: string): any => { try { return JSON.parse(fs.readFileSync(f
 const ms = (s?: string) => { const t = s ? Date.parse(s) : NaN; return isNaN(t) ? undefined : t; };
 
 export interface ToolTiming {
-  tool: string; pod: string; task: string; status: string; phase: string; exit_code: string | number; node: string;
+  name: string; tool: string; pod: string; task: string; status: string; phase: string; exit_code: string | number; node: string;
   created?: number; started?: number; finished?: number; wait_s?: number; run_s?: number; total_s?: number;
 }
+
+
+/** task id → tool name, from the orchestrator lines saved in eks-live/services.log (JSON lines with task_id and tool) */
+function taskToolNames(live: string): Map<string, string> {
+  const m = new Map<string, string>();
+  try {
+    for (const l of fs.readFileSync(path.join(live, 'services.log'), 'utf8').split(/\r?\n/)) {
+      const i = l.indexOf('{"'); if (i < 0 || !/task_id/.test(l)) continue;
+      try { const j = JSON.parse(l.slice(i)); const t = String(j.task_id || '').toLowerCase(), n = j.tool || j.tool_name || j.technique; if (t && n && !m.has(t)) m.set(t, String(n)); } catch { /* not json */ }
+    }
+  } catch { /* no services.log */ }
+  return m;
+}
+const looksLikePod = (s: string) => /^[0-9a-f]{20,}(-[a-z0-9]+)?$/i.test(s) || /^wb-exec-/.test(s);
 
 /** one row per tool pod: queued (pod created) → started → finished, from eks-live/tools.json + pods/<pod>/pod.json */
 export function readToolTimings(branchDir: string): { rows: ToolTiming[]; note: string } {
@@ -29,12 +43,17 @@ export function readToolTimings(branchDir: string): { rows: ToolTiming[]; note: 
   const tools = readJson(path.join(live, 'tools.json'));
   if (!Array.isArray(tools)) return { rows: [], note: fs.existsSync(live) ? 'eks-live/tools.json not found (the collector saw no tool pods)' : 'QA EKS collector was off for this run (set EKS_AUTO=on), so tool times are not available' };
   const status = readJson(path.join(live, 'tool-status.json')) || {};
+  const names = taskToolNames(live);
   const rows = tools.map((t: any): ToolTiming => {
     const pj = readJson(path.join(live, 'pods', String(t.pod || ''), 'pod.json'));
     const created = ms(pj?.metadata?.creationTimestamp), started = ms(t.started), finished = ms(t.finished);
+    let task = String(pj?.metadata?.labels?.['whitebox.testable.cloud/task'] || '');
+    if (!task) { try { task = /whitebox\.testable\.cloud\/task[=:]\s*([0-9a-f-]{36})/i.exec(fs.readFileSync(path.join(live, 'pods', String(t.pod || ''), 'describe.txt'), 'utf8'))?.[1] || ''; } catch { /* no describe */ } }
+    const raw = String(t.tool || t.pod || '');
+    const name = !looksLikePod(raw) ? raw : (names.get(task.toLowerCase()) || '(name not found)');
     return {
-      tool: String(t.tool || t.pod || ''), pod: String(t.pod || ''), task: String(pj?.metadata?.labels?.['whitebox.testable.cloud/task'] || ''),
-      status: String(status[t.tool] || ''), phase: String(t.phase || ''), exit_code: t.exit_code ?? '', node: String(t.node || ''),
+      name, tool: raw, pod: String(t.pod || ''), task,
+      status: String(status[t.tool] || status[name] || ''), phase: String(t.phase || ''), exit_code: t.exit_code ?? '', node: String(t.node || ''),
       created, started, finished, wait_s: secBetween(created, started), run_s: secBetween(started, finished), total_s: secBetween(created, finished),
     };
   }).sort((a: ToolTiming, b: ToolTiming) => (a.created || a.started || 0) - (b.created || b.started || 0));
@@ -70,8 +89,8 @@ export async function writeTimingWorkbook(o: {
 
   // ---- Tools
   const ws3 = wb.addWorksheet('Tools');
-  ws3.columns = [{ header: 'Tool', width: 44 }, { header: 'Status', width: 12 }, { header: 'Queued = pod created (IST)', width: 26 }, { header: 'Started (IST)', width: 24 }, { header: 'Finished (IST)', width: 24 }, { header: 'Wait before start (s)', width: 14 }, { header: 'Run time (s)', width: 12 }, { header: 'Total queued→finished (s)', width: 14 }, { header: 'Phase', width: 11 }, { header: 'Exit code', width: 9 }, { header: 'Task id', width: 38 }, { header: 'Pod', width: 52 }, { header: 'Node', width: 40 }];
-  tools.forEach((t) => ws3.addRow([t.tool, t.status, IST(t.created), IST(t.started), IST(t.finished), t.wait_s ?? '', t.run_s ?? '', t.total_s ?? '', t.phase, t.exit_code, t.task, t.pod, t.node]));
+  ws3.columns = [{ header: 'Tool name', width: 26 }, { header: 'Status', width: 12 }, { header: 'Queued = pod created (IST)', width: 26 }, { header: 'Started (IST)', width: 24 }, { header: 'Finished (IST)', width: 24 }, { header: 'Wait before start (s)', width: 14 }, { header: 'Run time (s)', width: 12 }, { header: 'Total queued→finished (s)', width: 14 }, { header: 'Phase', width: 11 }, { header: 'Exit code', width: 9 }, { header: 'Task id', width: 38 }, { header: 'Pod', width: 52 }, { header: 'Node', width: 40 }];
+  tools.forEach((t) => ws3.addRow([t.name, t.status, IST(t.created), IST(t.started), IST(t.finished), t.wait_s ?? '', t.run_s ?? '', t.total_s ?? '', t.phase, t.exit_code, t.task, t.pod, t.node]));
   if (tools.length) {
     const n = tools.length + 1;
     const a = ws3.addRow(['Total', '', '', '', '', { formula: `SUM(F2:F${n})` }, { formula: `SUM(G2:G${n})` }, { formula: `SUM(H2:H${n})` }]); a.font = { bold: true };
@@ -113,7 +132,7 @@ export async function writeTimingWorkbook(o: {
     ['Platform tasks total / completed / failed / skipped', run.total_tasks === undefined ? '' : `${run.total_tasks} / ${run.completed_tasks} / ${run.failed_tasks} / ${run.skipped_tasks}`], ['Overall score', run.overall_score ?? ''],
     ['', ''],
     ['Tool pods seen on EKS', tools.length || toolNote], ['Sum of tool run times (seconds)', tools.length ? runSec : ''],
-    ['Longest tool', longest ? `${longest.tool} (${longest.run_s ?? 0} s)` : ''],
+    ['Longest tool', longest ? `${longest.name} (${longest.run_s ?? 0} s)` : ''],
   ];
   kv.forEach((r) => ws1.addRow(r)); head(ws1); ws1.getColumn(1).font = { bold: true };
   ws1.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };

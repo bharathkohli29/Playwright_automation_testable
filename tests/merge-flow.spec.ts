@@ -7,7 +7,7 @@ import { branchDir, watchNetwork, addSummary } from '../utils/evidence';
 import { mergeTaxonomy } from '../utils/mergeTaxonomy';
 import { checkBranchS3, hasAwsCredentials } from '../utils/s3Evidence';
 import { describeAwsError } from '../utils/awsS3';
-import { dummyPrEnabled, pushDummyCommit } from '../utils/dummyCommit';
+import { dummyPrEnabled, pushDummyCommit, recordDummyOutcome, type DummyResult } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
 import { shareBranch } from '../utils/postprocess';
 import { attachPreviousFromSharePoint } from '../utils/sharepointHistory';
@@ -33,7 +33,11 @@ builds.forEach((build, index) => {
     let handedOff = false; // true = the background worker does this branch's S3 check, SharePoint copy and Teams message
 
     // step 0 (only when DUMMY_PR=yes in .env): push a dummy README comment so this branch has a NEW commit to analyse
-    if (dummyPrEnabled()) pushDummyCommit(build.repo, build.branch);
+    let dummy: DummyResult | undefined;
+    if (dummyPrEnabled()) {
+      dummy = pushDummyCommit(build.repo, build.branch);
+      try { fs.writeFileSync(`${branchDir(build.dir)}/dummy-commit.json`, JSON.stringify(dummy, null, 2)); } catch { /* optional */ }
+    }
     else console.log('  dummy PR: off (set DUMMY_PR=yes in .env to push a new commit before the run)');
 
     try {
@@ -115,6 +119,7 @@ builds.forEach((build, index) => {
           console.log(`  ⚠ ${msg}`);
           fs.writeFileSync(`${branchDir(build.dir)}/RUN-MISMATCH.txt`, msg + '\n');
         }
+        recordDummyOutcome(branchDir(build.dir), dummy, rec.commit_sha); // did the platform analyse our dummy commit?
       });
 
       // POSTPROCESS=background (default): S3 evidence, SharePoint copy and Teams message run in a separate worker (no browser needed),

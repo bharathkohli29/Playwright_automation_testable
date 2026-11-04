@@ -691,7 +691,7 @@ export class MergeFlowPage {
           let file = `${techDir}/${safe(sub)}.png`;
           if (shots && fs.existsSync(file)) file = `${techDir}/${safe(sub)}__${safe(cat)}.png`;
           n++;
-          const loaded = await this.waitGateLoaded(card, `${tech} › ${sub}`);
+          const loaded = await this.waitGateLoaded(card, `${tech} › ${sub}`, Number(process.env.GATE_WAIT_FIRST_SEC) || 4); // short: a gate that is still loading is read again after a page reload
           if (shots) await this.screenshotFullCard(card, file);
           if (!loaded) retry.push({ cat, tech, sub, file, idx: uiRows.length });
           uiRows.push({ category: cat, technique: tech, sub, rows: await this.readGateRows(card) });
@@ -702,21 +702,34 @@ export class MergeFlowPage {
     }
     if (skipped.length) fs.writeFileSync(`${destDir}/../ui-values-skipped.json`, JSON.stringify(skipped, null, 2));
     if (skipped.length && !uiRows.length) throw new Error(`No gate could be read (${skipped.length} skipped, first: ${skipped[0].why})`);
-    // gates that were still loading when first visited (the evidence keeps loading while we move on): visit them again, now with a long wait
-    for (const r of retry) {
-      try {
-        await cats.filter({ hasText: r.cat }).first().click();
-        await this.page.waitForTimeout(800);
-        await this.pick(this.techRow(), r.tech);
-        await this.pick(this.subRow(), r.sub);
-        const card = this.gateCard();
-        await expect(card.getByText(new RegExp(`${r.sub.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*Gate`, 'i')).first()).toBeVisible({ timeout: 20_000 });
-        const ok = await this.waitGateLoaded(card, `${r.tech} › ${r.sub} (2nd visit)`, 240);
-        if (shots) await this.screenshotFullCard(card, r.file);
-        uiRows[r.idx].rows = await this.readGateRows(card);
-        console.log(`  re-read "${r.tech} › ${r.sub}": ${ok ? 'loaded' : 'still not loaded'}`);
-      } catch (e) { console.log(`  could not re-read "${r.tech} › ${r.sub}": ${e instanceof Error ? e.message.split('\n')[0] : e}`); }
+    // gates that were still loading during the quick sweep: reload the page, visit only those again with a short wait, repeat (GATE_RELOAD_ROUNDS, default 3).
+    // No long waiting per gate: a gate that is not ready is simply tried again after the next reload.
+    let pending = retry;
+    const rounds = Number(process.env.GATE_RELOAD_ROUNDS) || 3;
+    for (let round = 1; round <= rounds && pending.length; round++) {
+      console.log(`  ${pending.length} gate(s) still loading — reloading the page (round ${round}/${rounds})`);
+      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+      await cats.first().waitFor({ state: 'visible', timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(1500);
+      const still: typeof retry = [];
+      for (const r of pending) {
+        try {
+          await cats.filter({ hasText: r.cat }).first().click();
+          await this.page.waitForTimeout(800);
+          await this.pick(this.techRow(), r.tech);
+          await this.pick(this.subRow(), r.sub);
+          const card = this.gateCard();
+          await expect(card.getByText(new RegExp(`${r.sub.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*Gate`, 'i')).first()).toBeVisible({ timeout: 20_000 });
+          const ok = await this.waitGateLoaded(card, `${r.tech} › ${r.sub} (after reload ${round})`, Number(process.env.GATE_WAIT_RETRY_SEC) || 15);
+          if (shots) await this.screenshotFullCard(card, r.file);
+          uiRows[r.idx].rows = await this.readGateRows(card);
+          console.log(`  re-read "${r.tech} › ${r.sub}": ${ok ? 'loaded' : 'still not loaded'}`);
+          if (!ok) still.push(r);
+        } catch (e) { console.log(`  could not re-read "${r.tech} › ${r.sub}": ${e instanceof Error ? e.message.split('\n')[0] : e}`); still.push(r); }
+      }
+      pending = still;
     }
+    if (pending.length) console.log(`  ⚠ ${pending.length} gate(s) never finished loading; their values are saved as read (some may be empty)`);
     fs.writeFileSync(`${destDir}/../ui-values.json`, JSON.stringify(uiRows, null, 2));
     console.log(`  UI score: ${shots ? `${saved.length} gate screenshots + ` : `${saved.length} gates read (no screenshots) → `}ui-values.json (${uiRows.reduce((a, g) => a + g.rows.length, 0)} classification rows read from the page)${shots ? ` saved under ${destDir}` : ''}`);
     return saved;
