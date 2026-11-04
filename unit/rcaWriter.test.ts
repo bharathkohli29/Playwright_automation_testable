@@ -5,7 +5,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { buildFactPack } from '../utils/rcaFacts';
-import { writeReport, ungrounded, factsText } from '../utils/rcaWriter';
+import { writeReport, ungrounded, factsText, rcaModelStatus } from '../utils/rcaWriter';
 import { reportFromRules } from '../utils/rcaReport';
 
 function branch() {
@@ -51,4 +51,15 @@ test('the model sees only this tool: facts text names the failed pod lines and t
   assert.deepEqual(ungrounded('see /etc/a/b and --foo 1234', t).sort(), ['--foo', '/etc/a/b', '1234'].sort());
   assert.deepEqual(ungrounded('a long-running job on Python 3.1', 'python 3.12 long running'), ['3.1']); // 3.1 is not 3.12; "long-running" is no option
   assert.deepEqual(ungrounded('Python 3.12 and /workspaces/x', 'python 3.12 at /workspaces/cell-001/source'), []);
+});
+
+test('model status for the pre-flight: reachable and present, reachable but missing, not reachable, switched off', async () => {
+  const srv = http.createServer((_q, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ models: [{ name: 'rca-writer:latest' }, { name: 'qwen3:4b' }] })); });
+  await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', () => ok())); const url = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  try {
+    assert.deepEqual(await rcaModelStatus(url, 'rca-writer'), { enabled: true, reachable: true, present: true, name: 'rca-writer' });
+    assert.equal((await rcaModelStatus(url, 'other-model')).present, false);
+    assert.equal((await rcaModelStatus('http://127.0.0.1:1', 'rca-writer')).reachable, false);
+    process.env.RCA_MODEL = 'off'; assert.equal((await rcaModelStatus(url, 'rca-writer')).enabled, false);
+  } finally { delete process.env.RCA_MODEL; srv.close(); }
 });

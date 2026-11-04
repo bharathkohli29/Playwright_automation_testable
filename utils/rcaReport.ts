@@ -38,6 +38,7 @@ function stateOf(p: FactPack, kind: RcaReport['kind']): string {
   if (!p.triggered) return 'NOT TRIGGERED';
   if (/Language Contamination/.test(p.classification)) return 'TRIGGERED · NOT A TOOL OF THIS LANGUAGE';
   if (/excluded|must not|outside the matrix/i.test(p.s3Note)) return 'TRIGGERED · NOT EXPECTED FOR THIS VERSION';
+  if (/only reported not_applicable/i.test(p.s3Note)) return 'TRIGGERED · REPORTED NOT APPLICABLE';
   if (p.s3State === 'EMPTY' || /False Empty/.test(p.classification)) return 'TRIGGERED · EMPTY RESULT';
   return 'TRIGGERED · FAILED';
 }
@@ -61,7 +62,7 @@ export function reportFromRules(p: FactPack): RcaReport {
   const what: string[] = [];
   if (p.classification) what.push(`The S3 check marked ${p.tool} as ${p.classification}${p.observed ? ` (${p.observed})` : ''}: ${one(p.s3Note, 260)}`);
   for (const a of p.attempts) what.push(`Pod ${a.pod.replace(/^wb-exec-/, '').slice(0, 14)}…: ${a.phase}${a.exitCode != null ? `, exit code ${a.exitCode}` : ''}${a.command ? `, command "${one(a.command, 60)}"` : ''}${a.started ? `, started ${a.started}` : ''}.`);
-  if (!p.attempts.length) what.push('No pod of this tool was seen by the live capture.');
+  if (!p.attempts.length) what.push(p.captured ? 'No pod of this tool was seen by the live capture.' : 'There is no live capture of this run, so no pod lines are available.');
   const evLine = d?.lines.find((l) => /error|exception|denied|fail|found|no such/i.test(l)) || d?.lines[d.lines.length - 1] || p.failureJson[0] || p.serviceLines.find((s) => s.sameTask)?.text || p.serviceLines[0]?.text || '';
   const where = d ? `from the failed pod ${d.pod.replace(/^wb-exec-/, '').slice(0, 14)}…` : p.failureJson[0] && evLine === p.failureJson[0] ? "from the tool's failure.json in S3" : 'from the cluster service log';
   let why: string; let owner: string; let fix: string; let confidence: string;

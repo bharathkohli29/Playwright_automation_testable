@@ -10,7 +10,7 @@ import { promptFor, rcaModelEnabled, ungrounded, writeReport } from './rcaWriter
 /**
  * Training data for the RCA writer, made from YOUR runs only (nothing from any earlier model or data set):
  *
- *   npm run rca:dataset -- export "<branch folder>" ["<branch folder>" ...] [--rules-only] [--out <dir>]
+ *   npm run rca:dataset -- export "<branch folder>" ["<branch folder>" ...] [--rules-only] [--red-only] [--unique] [--cap <class text>=<n>] [--out <dir>]
  *       one row per tool: the facts the model sees, the draft report (model-worded when RCA_MODEL is on, else by rules), and empty columns for a person.
  *       Writes <dir>/review.xlsx and <dir>/facts.jsonl (the exact prompts; keep it next to the sheet).
  *   npm run rca:dataset -- import "<dir>/review.xlsx"
@@ -27,18 +27,22 @@ const HEAD = ['id', 'branch', 'tool', 'layout', 'state', 'facts the model sees',
 const COL = Object.fromEntries(HEAD.map((h, i) => [h, i + 1]));
 const holdout = (id: string) => parseInt(crypto.createHash('sha1').update(id).digest('hex').slice(0, 6), 16) % 5 === 0;
 
-export async function exportReview(dirs: string[], out: string, rulesOnly: boolean): Promise<number> {
+export interface ExportOptions { redOnly?: boolean; unique?: boolean; caps?: Record<string, number> }
+export async function exportReview(dirs: string[], out: string, rulesOnly: boolean, opts: ExportOptions = {}): Promise<number> {
   fs.mkdirSync(out, { recursive: true });
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Review'); ws.addRow(HEAD);
   const how = wb.addWorksheet('How to review');
   [['Read the facts (column F) and the draft (G to K).'], ['DECISION: OK when the draft is right and clear, EDIT when you fix it, SKIP when the case is not usable.'],
     ['EDIT: fill only the corrected cells you want to change; an empty corrected cell keeps the draft text.'], ['Use only what the facts say: no new file names, paths, options, versions or numbers.'],
     ['Write short plain sentences for a QA engineer who is not a Kubernetes expert. No contractions.'], ['Rows without a DECISION are ignored. Keep review.xlsx and facts.jsonl in the same folder.']].forEach((r) => how.addRow(r)); how.getColumn(1).width = 120;
-  const side = fs.createWriteStream(path.join(out, 'facts.jsonl')); let n = 0; const seen = new Set<string>(); // the same run in two folders (or twice) is one case: the first folder given wins
+  const side = fs.createWriteStream(path.join(out, 'facts.jsonl')); let n = 0; const seen = new Set<string>(); const shape = new Set<string>(); const capped: Record<string, number> = {}; // the same run in two folders (or twice) is one case: the first folder given wins
   for (const dir of dirs.map((d) => path.resolve(d))) for (const tool of allTools(dir)) {
     const p = buildFactPack(dir, tool); const id = `${(p.runId || path.basename(dir)).slice(0, 8)}-${safe(tool)}`;
     if (seen.has(id)) continue; seen.add(id);
     const base = reportFromRules(p);
+    if (opts.redOnly && base.tone === 'green') continue;
+    if (opts.unique) { const k = [p.language, tool, base.state, p.rule?.id || p.classification].join('|'); if (shape.has(k)) continue; shape.add(k); } // the same tool, language and cause in another run is the same case
+    const capKey = Object.keys(opts.caps || {}).find((c) => p.classification.toLowerCase().includes(c)); if (capKey) { capped[capKey] = (capped[capKey] || 0) + 1; if (capped[capKey] > opts.caps![capKey]) continue; }
     const draft = rulesOnly || !rcaModelEnabled() || base.tone === 'green' ? base : (await writeReport(p)).report;
     const pr = promptFor(p, base);
     const d: Fields = { oneLine: draft.oneLine, whatHappened: draft.whatHappened, why: draft.why, impact: draft.impact, fix: draft.fix };
@@ -91,10 +95,13 @@ if (require.main === module) {
   (async () => {
     const [cmd, ...rest] = process.argv.slice(2); const ri = rest.indexOf('--out'); const oa = ri >= 0 ? rest.splice(ri, 2)[1] : '';
     const ro = rest.indexOf('--rules-only'); const rulesOnly = ro >= 0; if (ro >= 0) rest.splice(ro, 1);
+    const flag = (f: string) => { const i = rest.indexOf(f); if (i >= 0) rest.splice(i, 1); return i >= 0; }; const opts: ExportOptions = { caps: {} };
+    opts.redOnly = flag('--red-only'); opts.unique = flag('--unique');
+    for (let i = rest.indexOf('--cap'); i >= 0; i = rest.indexOf('--cap')) { const [k, v] = String(rest.splice(i, 2)[1]).split('='); opts.caps![k.toLowerCase()] = Number(v); }
     if (cmd === 'export' && rest.length && rest.every((d) => fs.existsSync(d))) {
       const d = new Date(); const p2 = (x: number) => String(x).padStart(2, '0');
       const out = path.resolve(oa || path.join(__dirname, '..', 'results', 'rca-dataset', `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`));
-      const n = await exportReview(rest, out, rulesOnly);
+      const n = await exportReview(rest, out, rulesOnly, opts);
       console.log(`${n} tool(s) exported to ${path.join(out, 'review.xlsx')} (+ facts.jsonl). Give the sheet to two reviewers; then:  npm run rca:dataset -- import "${path.join(out, 'review.xlsx')}"`);
     } else if (cmd === 'import' && rest[0] && fs.existsSync(rest[0])) {
       const r = await importReview(rest[0]);

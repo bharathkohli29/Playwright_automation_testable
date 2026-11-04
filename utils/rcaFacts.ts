@@ -21,6 +21,8 @@ export interface FactPack {
   rule: PackRule | null; hasEvidence: boolean; profile: ToolProfile;
   /** the tool ran: a pod was seen, or its S3 folder exists, or the S3 check read a result (otherwise it was NOT TRIGGERED) */
   triggered: boolean; s3State: string;
+  /** the live collector saved eks-live/ for this run (without it no pod or service line can exist) */
+  captured: boolean;
   /** triggered and nothing wrong: green layout. Everything else (not triggered, failed, empty, not expected) is red. */
   healthy: boolean;
 }
@@ -76,12 +78,14 @@ export function buildFactPack(branchDir: string, tool: string): FactPack {
   const entries = (sk ? sj[sk].tools || [] : []).filter((t: any) => norm(t.tool) === want);
   const s3State = String((entries.find((t: any) => t.state !== 'NOT_TRIGGERED') || entries[0])?.state || '');
   const hasFolder = Object.keys(readJson(path.join(branchDir, 's3-folders.json')) || {}).some((f) => norm(f) === want);
-  const triggered = attempts.length > 0 || hasFolder || ['OUTPUT', 'EMPTY', 'FAILED'].includes(s3State);
+  // a defect that says the tool produced something (empty, failed, ran outside the matrix, reported not applicable) means it was triggered, even when no folder list or capture is saved
+  const ranByS3 = ['EMPTY', 'FAILED', 'RAN_BUT_EXCLUDED', 'OUTPUT'].includes(s3.observed) || /only reported|FOREIGN_TOOL_PLANNED/.test(s3.note) || /False Empty|Runner Execution|Language Contamination/.test(s3.classification);
+  const triggered = attempts.length > 0 || hasFolder || ranByS3 || ['OUTPUT', 'EMPTY', 'FAILED'].includes(s3State);
   const podOk = !decisive || rule?.id === 'findings-exit-code';
   const healthy = triggered && !s3.classification && podOk && (sk ? s3State === 'OUTPUT' || (s3State === '' && attempts.length > 0) : attempts.length > 0);
   const runDiag = readJson(path.join(live, 'run-diagnosis.json'));
   if (!rule && runDiag && (status === 'STUCK_WAITING' || status === 'NEVER_DISPATCHED')) rule = { id: runDiag.id, title: runDiag.title, rootCause: runDiag.rootCause, owner: runDiag.owner, fix: runDiag.fix, scope: 'run' };
-  return { tool, runId: s3.runId, branch: s3.branch, language: s3.language, version: s3.version, classification: s3.classification, observed: s3.observed, s3Note: s3.note, status, attempts, decisive, serviceLines, failureJson, rule, hasEvidence: !!(attempts.length || serviceLines.length || failureJson.length), profile: buildProfile(branchDir, tool, recs, s3.language, s3.version), triggered, s3State, healthy };
+  return { tool, runId: s3.runId, branch: s3.branch, language: s3.language, version: s3.version, classification: s3.classification, observed: s3.observed, s3Note: s3.note, status, attempts, decisive, serviceLines, failureJson, rule, hasEvidence: !!(attempts.length || serviceLines.length || failureJson.length), profile: buildProfile(branchDir, tool, recs, s3.language, s3.version), triggered, s3State, healthy, captured: fs.existsSync(path.join(live, 'summary.json')) };
 }
 
 /** Tools that need a report: the platform defects of the S3 check, plus every tool whose pod failed or that never started (when no S3 check exists). */
@@ -103,5 +107,5 @@ export function allTools(branchDir: string): string[] {
   for (const d of (key && s3[key].defects) || []) add(d.tool);
   for (const [t, st] of Object.entries(readJson(path.join(branchDir, 'eks-live', 'tool-status.json')) || {})) if (st !== 'UNKNOWN') add(t);
   for (const r of readJson(path.join(branchDir, 'eks-live', 'tools.json')) || []) add(r.tool);
-  return [...names.values()];
+  return [...names.values()].filter((t) => !/^[0-9a-f]{32}-[a-z0-9]{5}$/.test(t)); // a pod id is not a tool name (the collector could not name that pod)
 }

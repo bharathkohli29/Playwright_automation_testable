@@ -53,7 +53,7 @@ export function enqueuePostProcess(job: PostJob): boolean {
     const tmp = path.join(dir, `${name}.tmp`);
     fs.writeFileSync(tmp, JSON.stringify(job, null, 2));
     fs.renameSync(tmp, path.join(dir, name));
-    writePostState(job.branchDir, { state: 'queued', steps: { s3: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: new Date().toISOString() });
+    writePostState(job.branchDir, { state: 'queued', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', rcareport: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: new Date().toISOString() });
     if (!ensureWorker()) { fs.rmSync(path.join(dir, name), { force: true }); return false; }
     console.log(`  ${job.branch}: handed to the background worker — the next branch starts now`);
     startLiveTail();

@@ -8,6 +8,7 @@ import { hasAwsCredentials } from './s3Evidence';
 import { sessionSaved, sessionFileRequest } from './sharepointSession';
 import { teamsEnabled } from './teams';
 import { eksAutoEnabled, eksClusterReady } from './eksAnalyze';
+import { rcaModelStatus } from './rcaWriter';
 
 /**
  * Pre-flight check, run once before the first branch (npm test) or by hand (npm run preflight): looks at everything the run and its post-processing
@@ -46,7 +47,7 @@ async function checkAws(): Promise<Check> {
 
 async function checkSharePoint(): Promise<Check> {
   const fix = 'run  npm run sp:login  (your Microsoft work account)';
-  if (!sessionSaved()) return { name: 'SharePoint sign-in', level: 'FAIL', message: 'no saved sign-in', effect: 'no copy to SharePoint, no earlier-run history, no EKS log fetch, no model download', fix };
+  if (!sessionSaved()) return { name: 'SharePoint sign-in', level: 'FAIL', message: 'no saved sign-in', effect: 'no copy to SharePoint, no earlier-run history, no EKS log fetch', fix };
   try {
     const r = sessionFileRequest([]);
     const url = r.url.replace('GetFileByServerRelativePath', 'GetFolderByServerRelativePath').replace(/\/\$value$/, '') + '/Folders?$top=1';
@@ -69,10 +70,18 @@ async function checkEks(): Promise<Check> {
     : { name: 'QA EKS cluster', level: 'WARN', message: first(note) || 'not reachable from this PC', effect: 'no live pod logs for this run; the analysis falls back to the cluster service logs', fix: 'npm run eks:setup shows what is missing (sign-in, IP, VPN)' };
 }
 
+async function checkRcaModel(): Promise<Check> {
+  const s = await rcaModelStatus();
+  if (!s.enabled) return { name: 'RCA model', level: 'WARN', message: 'RCA_MODEL=off', effect: 'the RCA Report is written from the facts and rules only', fix: 'set RCA_MODEL=on in .env' };
+  if (!s.reachable) return { name: 'RCA model', level: 'WARN', message: 'Ollama does not answer on this PC', effect: 'the red RCA reports use the rule-written text (the PDFs are still made)', fix: 'start Ollama, then: ollama create rca-writer -f rca-model/Modelfile' };
+  if (!s.present) return { name: 'RCA model', level: 'WARN', message: `Ollama is running but the model "${s.name}" does not exist`, effect: 'the red RCA reports use the rule-written text', fix: 'ollama create rca-writer -f rca-model/Modelfile' };
+  return { name: 'RCA model', level: 'OK', message: `Ollama answers and "${s.name}" exists (the red RCA reports are worded by it)` };
+}
+
 export async function runPreflight(): Promise<Check[]> {
   const safe = async (name: string, f: () => Promise<Check> | Check): Promise<Check> => { try { return await f(); } catch (e) { return { name, level: 'WARN', message: `check itself failed (${first(String((e as Error).message))})` }; } };
   return [await safe('Branch list', checkBuilds), await safe('Platform login', checkLogin), await safe('AWS S3 keys', checkAws), await safe('SharePoint sign-in', checkSharePoint),
-    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks)];
+    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks), await safe('RCA model', checkRcaModel)];
 }
 
 export function printPreflight(cs: Check[]): void {

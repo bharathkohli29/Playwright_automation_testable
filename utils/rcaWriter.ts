@@ -15,6 +15,16 @@ export const rcaModelEnabled = () => !/^(off|no|0|false)$/i.test((process.env.RC
 const HOST = () => (process.env.OLLAMA_HOST || 'http://localhost:11434').replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'http://');
 const MODEL = () => (process.env.RCA_MODEL_NAME || 'rca-writer').trim();
 
+/** is the local model usable? (Ollama answers and the model exists); used by the pre-flight check */
+export async function rcaModelStatus(host = HOST(), name = MODEL()): Promise<{ enabled: boolean; reachable: boolean; present: boolean; name: string }> {
+  const enabled = rcaModelEnabled(); if (!enabled) return { enabled, reachable: false, present: false, name };
+  try {
+    const res = await fetch(`${host.replace(/\/+$/, '')}/api/tags`, { signal: AbortSignal.timeout(4000) }); if (!res.ok) return { enabled, reachable: false, present: false, name };
+    const j: any = await res.json(); const names: string[] = (j?.models || []).map((m: any) => String(m.name || ''));
+    return { enabled, reachable: true, present: names.some((n) => n === name || n === `${name}:latest` || n.split(':')[0] === name.split(':')[0] && !name.includes(':')), name };
+  } catch { return { enabled, reachable: false, present: false, name }; }
+}
+
 export interface WriterOptions { model?: string; host?: string; timeoutSec?: number }
 export interface WriterResult { report: RcaReport; used: 'model' | 'rules'; model?: string; ms?: number; note?: string }
 
@@ -37,7 +47,7 @@ export function factsText(p: FactPack, base: RcaReport): string {
   const out: string[] = [`TOOL: ${p.tool}${p.language ? ` (${p.language} ${p.version})` : ''}`];
   if (p.classification) out.push(`S3 RESULT: ${p.classification} ${p.observed}: ${p.s3Note}`);
   if (p.attempts.length) out.push('POD ATTEMPTS:', ...p.attempts.map((a, i) => `${i + 1}. ${a.phase}, exit code ${a.exitCode ?? '?'}, command "${a.command}"`));
-  else out.push('POD ATTEMPTS: none seen');
+  else out.push(p.captured ? 'POD ATTEMPTS: none seen' : 'POD ATTEMPTS: none (there is no live capture of this run)');
   const f = p.profile; if (f.firstStart || f.seconds.queueWait != null) out.push(`TIMING: started ${f.firstStart ? ist(f.firstStart) : 'unknown'}, finished ${f.lastEnd ? ist(f.lastEnd) : 'unknown'}, ran for ${dur(f.seconds.task ?? f.seconds.pods)}, waited in the queue ${dur(f.seconds.queueWait)}`);
   if (p.decisive?.lines.length) out.push('LOG LINES OF THE FAILED POD:', ...p.decisive.lines.map((l) => `- ${l}`));
   const sv = p.serviceLines.filter((s) => s.sameTask || !p.decisive); if (sv.length) out.push('SERVICE LINES OF THIS TASK:', ...sv.map((s) => `- ${s.text}`));

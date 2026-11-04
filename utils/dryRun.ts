@@ -3,7 +3,7 @@ import * as path from 'path';
 
 /**
  * Dry run of the post-processing: POST_DRYRUN=1 in .env (or  npm run post -- "<branch folder>" --dry-run).
- * Everything that only READS still runs (EKS logs, S3 check, model, bug drafts, SharePoint history). The two things that leave this PC are not done,
+ * Everything that only READS still runs (EKS logs, S3 check, the RCA Report with its local model, bug drafts, SharePoint history). The two things that leave this PC are not done,
  * they are shown instead: the SharePoint upload (what would be copied, where) and the Teams card (its text, buttons and size; the full card is saved
  * as <branch folder>/teams-card.dryrun.json). Use it to test a new .env without filling the team's channel and folder.
  */
