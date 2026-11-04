@@ -225,6 +225,7 @@ export function checkJava(tool: string, f: FileMap, txt: (name: string) => strin
     case 'java-all-defs-uses': {
       const j = main('defs_uses.json') ?? main('def_use.json'); if (j === undefined) return R('NO_DATA', 'defs_uses.json / def_use.json are missing');
       if (/NOT_IMPLEMENTED/i.test(String(j.status || '')) || /not_implemented/i.test(String(j.detail_code || ''))) return empty0('the analyzer is only a stub (status NOT_IMPLEMENTED, no definitions or uses were computed)');
+      if (/NOT_READY/i.test(String(j.status || '')) && /JACOCO/i.test(String(j.detail_code || ''))) return R('NO_DATA', `def_use.json says NOT_READY (${j.detail_code}): it builds on the jacoco coverage report, and jacoco produced none — a consequence of the missing jacoco result, not an empty analysis`);
       if (/FAIL|ERROR/i.test(String(j.status || ''))) return R('FAILED', `def_use status ${j.status}${j.detail_code ? ` (${j.detail_code})` : ''}`);
       const classes = len(j.classes);
       return classes || len(j.pairs) || len(j.definitions) ? ok(`${classes} class(es) with definition / use data${j.detail_code ? ` (${j.detail_code})` : ''}`, classes) : empty0('def_use.json has 0 classes');

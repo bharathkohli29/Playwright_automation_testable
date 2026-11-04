@@ -64,7 +64,8 @@ export async function setupRcaModel(o: SetupOptions = {}): Promise<{ ready: bool
     if (!cmd && /^(1|yes|on|true)$/i.test((env.RCA_SETUP_INSTALL_OLLAMA || '').trim()) && WIN) { say('warn', 'Ollama is missing: installing it with winget ...'); exec('winget', ['install', '-e', '--id', 'Ollama.Ollama', '--silent', '--accept-package-agreements', '--accept-source-agreements'], { inherit: true }); cmd = ollamaCommand(exec); }
     if (!cmd) { say('fail', `Ollama is not installed. Install it from https://ollama.com/download (or set RCA_SETUP_INSTALL_OLLAMA=yes to let this script do it on Windows), then start again. The run goes on without the model.`); return { ready: false, lines }; }
     say('ok', `Ollama installed (${exec(cmd, ['--version']).out.replace(/\s+/g, ' ').slice(0, 60)})`);
-  } else say('skip', `Ollama is on another machine (${host}): only checking it`);
+  } else if (!/^(1|yes|on|true)$/i.test((env.RCA_ALLOW_REMOTE_HOST || '').trim())) { say('fail', `OLLAMA_HOST (${host}) is not on this PC. The team rule is local only: facts and logs are not sent to another machine. Remove OLLAMA_HOST, or set RCA_ALLOW_REMOTE_HOST=yes if the team lead agreed.`); return { ready: false, lines }; }
+  else say('skip', `Ollama is on another machine (${host}), allowed by RCA_ALLOW_REMOTE_HOST: only checking it`);
 
   // 2 Ollama answers
   let names = await tags(host);

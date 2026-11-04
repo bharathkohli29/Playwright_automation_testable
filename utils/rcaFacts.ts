@@ -12,7 +12,7 @@ import { buildProfile, ToolProfile } from './rcaProfile';
  * Reads only. Never throws (a tool without any evidence gets an empty pack).
  */
 export interface PodAttempt { pod: string; task: string; phase: string; exitCode: number | null; reason: string; command: string; started: string; finished: string; lines: string[] }
-export interface PackRule { id: string; title: string; rootCause: string; owner: string; fix: string; scope: 'pod' | 'service' | 'run' }
+export interface PackRule { id: string; title: string; rootCause: string; owner: string; fix: string; scope: 'pod' | 'service' | 's3' | 'run' }
 export interface FactPack {
   tool: string; runId: string; branch: string; language: string; version: string;
   classification: string; observed: string; s3Note: string; status: string;
@@ -74,6 +74,8 @@ export function buildFactPack(branchDir: string, tool: string): FactPack {
     const text = [...failureJson, ...pool.map((s) => s.text)].join('\n');
     if (text) { const k = matchToolRules({ tool, text, observed }); if (k) rule = { id: k.id, title: k.title, rootCause: k.rootCause, owner: k.owner, fix: k.fix, scope: 'service' }; }
   }
+  // the S3 result alone can already prove the cause (a tool that RAN although the matrix excludes it): no log line is needed, so a run without a capture is explained too
+  if (!rule && observed) { const k = matchToolRules({ tool, text: '', observed }); if (k) rule = { id: k.id, title: k.title, rootCause: k.rootCause, owner: k.owner, fix: k.fix, scope: 's3' }; }
   const sj = readJson(path.join(branchDir, 's3-check.json')); const sk = LANG_KEYS.find((k) => sj?.[k]);
   const entries = (sk ? sj[sk].tools || [] : []).filter((t: any) => norm(t.tool) === want);
   const s3State = String((entries.find((t: any) => t.state !== 'NOT_TRIGGERED') || entries[0])?.state || '');

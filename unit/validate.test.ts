@@ -46,3 +46,11 @@ test('the language and version come from the branch folder name', () => {
   assert.equal(languageFromName('JS_V18_X'), 'javascript, Node 18');
   assert.equal(languageFromName('something-else'), '');
 });
+
+import { pyVersion } from '../utils/pyValidate';
+test('a Python run executed by hand (no repo-details.json): the version comes from the branch name; with repo-details.json nothing changes', () => {
+  const mk = (branch: string, details?: object) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pyv-')); fs.writeFileSync(path.join(d, 'run-details.json'), JSON.stringify({ branch_name: branch })); if (details) fs.writeFileSync(path.join(d, 'repo-details.json'), JSON.stringify(details)); return d; };
+  assert.equal(pyVersion(mk('PY_V312_UV_PIP_MONO'))?.label, '3.12'); assert.equal(pyVersion(mk('PY_V37_X'))?.label, '3.7'); assert.equal(pyVersion(mk('PY_V310_X'))?.label, '3.10');
+  assert.equal(pyVersion(mk('PY_V35_X')), null); assert.equal(pyVersion(mk('JS_V20_VITE')), null);
+  assert.equal(pyVersion(mk('PY_V312_X', { 'Build type': 'Python', 'Language version': '3.11.13' }))?.label, '3.11'); // repo-details.json wins when it exists
+});

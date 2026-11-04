@@ -103,3 +103,11 @@ test('the tool profile: task window, queue wait, pod attempts, timeline order, S
   const html = reportHtml(reportFromRules(buildFactPack(d, 'radon')), buildFactPack(d, 'radon'));
   assert.match(html, /Waited in queue/); assert.match(html, /30 s/); assert.match(html, /<h2>Timeline \(IST\)<\/h2>/); assert.match(html, /<h2>S3 result<\/h2>/); assert.doesNotMatch(html, /other task/);
 });
+
+test('RUNTIME_IMAGE_DRIFT in a failure.json is a known cause: the plan froze another environment than the worker runs', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-')); const f = path.join(d, 's3-evidence', 'radon', 'id1', '0'); fs.mkdirSync(f, { recursive: true });
+  fs.writeFileSync(path.join(f, 'failure.json'), JSON.stringify({ error_code: 'permanent_runner_error', status: 'failed', reason: 'RUNTIME_IMAGE_DRIFT: plan froze environment 5a74d7f2ff7f52b4; this worker is 863dc97044a502f8' }));
+  fs.writeFileSync(path.join(d, 's3-check.json'), JSON.stringify({ run_id: 'r-1', branch: 'PY_V312_X', python: { version: '3.12', tools: [], defects: [{ tool: 'radon', tag: '[Runner Execution Defect]', observed: 'FAILED', note: 'failure.json — RUNTIME_IMAGE_DRIFT: plan froze environment 5a74d7f2ff7f52b4; this worker is 863dc97044a502f8' }] }, checks: [] }));
+  const p = buildFactPack(d, 'radon'); assert.equal(p.rule?.id, 'runtime-image-drift'); const r = reportFromRules(p);
+  assert.match(r.why, /5a74d7f2ff7f52b4/); assert.match(r.why, /863dc97044a502f8/); assert.match(r.owner, /Platform/); assert.match(r.evidence, /RUNTIME_IMAGE_DRIFT/);
+});

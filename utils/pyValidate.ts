@@ -36,6 +36,12 @@ export interface PyVersion { major: number; minor: number; label: string }
 
 /** Python branch? → its version (e.g. "3.11.13" → 3.11). null = not a Python branch / version unknown → the old logic stays. */
 export function pyVersion(bd: string): PyVersion | null {
+  // A run that was executed by hand (not by the browser test) has no repo-details.json: the version is then read from the branch name, PY_V312_... = Python 3.12
+  if (!fs.existsSync(path.join(bd, 'repo-details.json'))) {
+    let branch = path.basename(bd); try { branch = JSON.parse(fs.readFileSync(path.join(bd, 'run-details.json'), 'utf8')).branch_name || branch; } catch { /* the folder name is used */ }
+    const m = /^PY_V(\d)(\d{1,2})(?!\d)/i.exec(branch); if (!m) return null;
+    const v = { major: Number(m[1]), minor: Number(m[2]), label: `${m[1]}.${m[2]}` }; return v.major === 3 && v.minor >= 7 && v.minor <= 13 ? v : null;
+  }
   try {
     const j = JSON.parse(fs.readFileSync(path.join(bd, 'repo-details.json'), 'utf8'));
     if (!/^python$/i.test(String(j['Build type'] || '').trim())) return null;

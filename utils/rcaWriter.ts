@@ -14,6 +14,9 @@ import { dur, ist } from './rcaProfile';
 export const rcaModelEnabled = () => !/^(off|no|0|false)$/i.test((process.env.RCA_MODEL || '').trim()); // on unless RCA_MODEL=off; no Ollama = the rule-written report
 const HOST = () => (process.env.OLLAMA_HOST || 'http://localhost:11434').replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'http://');
 const MODEL = () => (process.env.RCA_MODEL_NAME || 'rca-writer').trim();
+/** the team rule: facts and logs are only sent to an Ollama on THIS PC. Another host needs RCA_ALLOW_REMOTE_HOST=yes (a decision of the team lead). */
+export const isLocalHost = (h: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(h);
+export const remoteAllowed = () => /^(1|yes|on|true)$/i.test((process.env.RCA_ALLOW_REMOTE_HOST || '').trim());
 
 /** is the local model usable? (Ollama answers and the model exists); used by the pre-flight check */
 export async function rcaModelStatus(host = HOST(), name = MODEL()): Promise<{ enabled: boolean; reachable: boolean; present: boolean; name: string }> {
@@ -102,6 +105,8 @@ Write the report for ${p.tool} now.`, ver };
 export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promise<WriterResult> {
   const base = reportFromRules(p);
   if (!p.hasEvidence && !p.classification) return { report: base, used: 'rules', note: 'no evidence: nothing for the model to word' };
+  const target = opts.host || HOST();
+  if (!isLocalHost(target) && !remoteAllowed()) return { report: base, used: 'rules', note: `blocked: the Ollama address (${target}) is not on this PC; the team rule is local only (RCA_ALLOW_REMOTE_HOST=yes overrides)` };
   const model = opts.model || MODEL(); const t0 = Date.now();
   try {
     const { facts, user, ver } = promptFor(p, base);

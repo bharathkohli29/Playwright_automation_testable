@@ -3,7 +3,7 @@
 # 1. a Python virtual environment in F:\rca-train\.venv   2. PyTorch with CUDA 12.6 (about 2.5 GB)   3. the training libraries   4. a GPU check
 # Every cache and temp folder is on F: because C: was full on 4 Nov 2026.
 $ErrorActionPreference = 'Stop'
-$root = 'F:\rca-train'
+$root = if ($env:RCA_TRAIN_ROOT) { $env:RCA_TRAIN_ROOT } else { Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'rca-train' }  # RCA_TRAIN_ROOT=<folder on a drive with 15 GB free>; default: next to the repo folder
 foreach ($d in 'tmp', 'pip-cache', 'hf', 'out') { New-Item -ItemType Directory -Force -Path (Join-Path $root $d) | Out-Null }
 $env:TEMP = "$root\tmp"; $env:TMP = "$root\tmp"; $env:PIP_CACHE_DIR = "$root\pip-cache"; $env:HF_HOME = "$root\hf"
 $env:PIP_DEFAULT_TIMEOUT = '900'; $env:PIP_RETRIES = '10'; $env:PYTHONPYCACHEPREFIX = "$root\pycache"; $env:PYTHONDONTWRITEBYTECODE = '1'
