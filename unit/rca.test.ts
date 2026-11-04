@@ -5,6 +5,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { buildFactPack, defectiveTools, allTools } from '../utils/rcaFacts';
 import { reportFromRules, reportHtml, writeReports } from '../utils/rcaReport';
+import { chromium } from '@playwright/test';
+
+/** the PDF tests need the Chromium that Playwright installs; the GitHub check skips that download, so they are skipped there */
+const noBrowser = (() => { try { return fs.existsSync(chromium.executablePath()) ? false : 'no Chromium installed (the check skips the browser download)'; } catch { return 'no Chromium installed'; } })();
 
 /** a branch folder with an eks-live capture: pods = [{tool, task, phase, exit, console lines}] and the service log lines */
 function branch(pods: { tool: string; task: string; phase: string; exit: number; lines: string[] }[], services: string[] = [], extra: Record<string, unknown> = {}) {
@@ -53,7 +57,7 @@ test('a tool with no log line gets an honest report; a planning defect is marked
   const gh = reportFromRules(buildFactPack(d, 'ghost')); assert.match(gh.why, /no log lines/i); assert.equal(gh.evidence, '(none)');
 });
 
-test('one PDF per tool in Triggered / Not triggered, rebuilt each time; the page holds every part and no other tool', async () => {
+test('one PDF per tool in Triggered / Not triggered, rebuilt each time; the page holds every part and no other tool', { skip: noBrowser }, async () => {
   const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
   fs.mkdirSync(path.join(d, 'RCA Report'), { recursive: true }); fs.writeFileSync(path.join(d, 'RCA Report', 'RCA_old.md'), 'left by an earlier attempt');
   const rows = await writeReports(d);
@@ -66,7 +70,7 @@ test('one PDF per tool in Triggered / Not triggered, rebuilt each time; the page
   assert.match(reportHtml({ ...reportFromRules(p), evidence: '<script>x</script>' }, p), /&lt;script&gt;/); // text from logs is escaped
 });
 
-test('green layout for a triggered tool that is fine, red for the others; not triggered tools go to their own folder; only red ones reach the writer', async () => {
+test('green layout for a triggered tool that is fine, red for the others; not triggered tools go to their own folder; only red ones reach the writer', { skip: noBrowser }, async () => {
   const d = branch([{ tool: 'radon', task: 'r', phase: 'Succeeded', exit: 0, lines: ['done'] }], [], {
     's3-check.json': { run_id: 'r1', branch: 'PY_X', python: { version: '3.12', defects: [{ tool: 'flake8', tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: 'flake8 is expected but was not triggered' }],
       tools: [{ tool: 'radon', state: 'NOT_TRIGGERED', note: 'No S3 folder' }, { tool: 'radon', state: 'OUTPUT', note: 'cc for 14 file(s)' }, { tool: 'flake8', state: 'NOT_TRIGGERED', note: 'No S3 folder' }] },
