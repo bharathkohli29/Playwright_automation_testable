@@ -19,9 +19,12 @@
     "rca": "tsx utils/rcaCli.ts",
     "rca:bakeoff": "tsx utils/rcaBakeoff.ts",
     "rca:dataset": "tsx utils/rcaDataset.ts",
+    "model:setup": "tsx utils/setupModel.ts",
+    "go": "tsx utils/setupModel.ts && playwright test",
+    "pretest": "tsx utils/setupModel.ts",
     "validate": "tsx utils/validateFolder.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test:unit": "node --import tsx --test unit/logic.test.ts unit/evidence.test.ts unit/validate.test.ts unit/rca.test.ts unit/rcaWriter.test.ts unit/rcaDataset.test.ts",
+    "test:unit": "node --import tsx --test unit/logic.test.ts unit/evidence.test.ts unit/validate.test.ts unit/rca.test.ts unit/rcaWriter.test.ts unit/rcaDataset.test.ts unit/setupModel.test.ts",
     "check": "npm run typecheck && npm run test:unit",
     "status": "tsx status-dashboard/server.ts"
   },
