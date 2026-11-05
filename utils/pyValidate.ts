@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
-import { bugRule as commonBugRule } from './bugRule';
+import { bugRule as commonBugRule, type RuleResult } from './bugRule';
 
 /**
  * Python tool validation for the S3 evidence of a PYTHON branch (Build type "Python" in repo-details.json).
@@ -338,7 +338,7 @@ export function validatePython(bd: string, rows: any[], inventory: Record<string
 }
 
 /** Bug rule for the missing tools of a Python branch: the common rule in bugRule.ts, with this version's tool matrix. */
-export function bugRule(v: PyVersion, folders: string[]): { mapped: Set<string>; needed: Map<string, string> } {
+export function bugRule(v: PyVersion, folders: string[]): RuleResult {
   return commonBugRule({ language: 'python', tools: PY_TOOLS, alias: ALIAS, has: (n) => !!folderFor(folders, n), level: (t) => (notExpectedReason(t, v) ? 'NO' : 'Y') });
 }
 

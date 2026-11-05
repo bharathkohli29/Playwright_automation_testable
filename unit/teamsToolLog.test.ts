@@ -22,7 +22,7 @@ test('every tool appears once in the Tool Trigger Log (no duplicates)', () => {
 });
 test('missing tools carry their type and the primary/secondary verdict', () => {
   const { py } = build(); const row = (t: string) => py.tools!.find((r) => r.tool === t)!;
-  assert.equal(row('flake8').verdict, 'covered'); assert.equal(row('flake8').kind, 'Secondary'); assert.match(row('flake8').why, /pylint triggered/);
+  assert.equal(row('flake8').verdict, 'covered'); assert.equal(row('flake8').kind, 'Secondary'); assert.match(row('flake8').why!, /pylint triggered/);
   assert.equal(row('coverage-py').verdict, 'bug'); assert.match(row('coverage-py').kind!, /^Primary/); assert.equal(row('pymcdc').kind, 'Primary');
   assert.equal(row('detect-secrets').verdict, 'unmapped');
   assert.equal(row('pylint').verdict, 'ok');
