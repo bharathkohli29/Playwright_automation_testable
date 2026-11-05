@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
+import { bugRule as commonBugRule } from './bugRule';
 
 /**
  * Python tool validation for the S3 evidence of a PYTHON branch (Build type "Python" in repo-details.json).
@@ -244,6 +245,7 @@ export interface PySummary {
   missing: string[]; naByDesign: string[]; outsideMatrix: string[]; contamination: string[];
   defects: PyDefect[]; // platform bugs found (the only ones a bug report is written for) — see bugReport.ts
   repoDefects: string[]; // failed because of the customer repo: flagged, never filed against the platform
+  notBugs?: { tool: string; why: string }[]; // folder missing, but primary/secondary rule says no bug (the other tool of the metric ran)
 }
 export interface PyDefect { tool: string; tag: '[Planning Defect]' | '[False Empty Defect]' | '[Runner Execution Defect]' | '[Language Contamination]'; observed: string; note: string; folder?: string; ranOutsideMatrix?: boolean }
 const sev = (s: PyStatus) => (s === 'FAILED' ? 5 : s === 'FALSE_EMPTY' ? 4 : s === 'NO_DATA' ? 3 : s === 'EMPTY_UNKNOWN' ? 2 : s === 'CLEAN' ? 1 : 0);
@@ -308,15 +310,20 @@ export function validatePython(bd: string, rows: any[], inventory: Record<string
 
   // 2) whole-run summary: every expected tool, independent of the table rows
   const sum: PySummary = { version: v.label, expected: expected.length, ok: 0, clean: 0, empty: 0, falseEmpty: 0, failed: 0, missing: [], naByDesign: [], outsideMatrix: [], contamination: [], defects: [], repoDefects: [] };
+  const rule = bugRule(v, folders);
   for (const t of PY_TOOLS) {
     const fo = folderFor(folders, t);
     const why = notExpectedReason(t, v);
     if (why) { if (fo) { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on Python ${v.label} although it must be excluded (${why})`, folder: fo, ranOutsideMatrix: true }); } else if (!RETIRED.includes(t) && !FIXTURES.includes(t)) sum.naByDesign.push(t); continue; }
     if (!expected.includes(t)) continue; // PY_IGNORE_TOOLS
-    { const _row = toolRow(t, 'Y', false, null, false); if (_row) (sum.tools ||= []).push(_row); }
-    if (!fo) { sum.missing.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Python ${v.label} but was not triggered — no folder in the run` }); continue; }
+    if (!fo) {
+      { const _row = toolRow(t, 'Y', false, null, false, rule.info(t, false)); if (_row) (sum.tools ||= []).push(_row); }
+      sum.missing.push(t);
+      if (rule.mapped.has(t) && !rule.needed.has(t)) { (sum.notBugs ||= []).push({ tool: t, why: rule.info(t, false).why }); continue; }
+      sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Python ${v.label} but was not triggered — no folder in the run${rule.needed.has(t) ? ` (${rule.needed.get(t)})` : ''}` }); continue;
+    }
     const r = checkTool(t, loadTool(bd, fo));
-    { const _row = toolRow(t, 'Y', true, r, false); if (_row) (sum.tools ||= []).push(_row); }
+    { const _row = toolRow(t, 'Y', true, r, false, rule.info(t, true)); if (_row) (sum.tools ||= []).push(_row); }
     if (r.status === 'OK') sum.ok++; else if (r.status === 'CLEAN') sum.clean++;
     else if (r.status === 'FALSE_EMPTY') { sum.falseEmpty++; sum.defects.push({ tool: t, tag: '[False Empty Defect]', observed: 'Empty JSON with 0 files scanned', note: r.note, folder: fo }); }
     else if (r.status === 'FAILED') { sum.failed++; const k = failureKind(r.note); if (k.repo) sum.repoDefects.push(t); else sum.defects.push({ tool: t, tag: '[Runner Execution Defect]', observed: 'FAILED', note: r.note, folder: fo }); }
@@ -328,6 +335,11 @@ export function validatePython(bd: string, rows: any[], inventory: Record<string
     if (FOREIGN.test(f.replace(/\/$/, '')) && !PY_TOOLS.some((t) => [t, ...(ALIAS[t] || [])].map(nn).includes(n))) { const c = f.replace(/\/$/, ''); sum.contamination.push(c); sum.defects.push({ tool: c, tag: '[Language Contamination]', observed: 'FOREIGN_TOOL_PLANNED', note: `${c} (a non-Python tool) was planned for a Python ${v.label} branch`, folder: f }); }
   }
   return sum;
+}
+
+/** Bug rule for the missing tools of a Python branch: the common rule in bugRule.ts, with this version's tool matrix. */
+export function bugRule(v: PyVersion, folders: string[]): { mapped: Set<string>; needed: Map<string, string> } {
+  return commonBugRule({ language: 'python', tools: PY_TOOLS, alias: ALIAS, has: (n) => !!folderFor(folders, n), level: (t) => (notExpectedReason(t, v) ? 'NO' : 'Y') });
 }
 
 export function summaryLine(s: PySummary): string {

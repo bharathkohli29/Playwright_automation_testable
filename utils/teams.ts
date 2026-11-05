@@ -47,14 +47,26 @@ export function toolSummary(dir?: string, noteMax = 70, withPrev = true): unknow
       const s = j[key]; if (!s || !s.version) continue;
       const defects: { tool: string; tag: string }[] = s.defects || [];
       const repo: string[] = s.repoDefects || [];
+      // display only: the bug list above is decided by the validators; here each tool row just gets the label of that decision
+      const nk = (x: string) => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+      const bugSet = new Set(defects.map((d) => nk(d.tool))); const repoSet = new Set(repo.map(nk));
+      const rows: ToolRow[] = ((s.tools as ToolRow[]) || []).map((r) => ({ ...r, bug: bugSet.has(nk(r.tool)) ? 'Bug' as const : repoSet.has(nk(r.tool)) ? 'Repo' as const : r.state === 'NOT_TRIGGERED' ? 'No bug' as const : undefined }));
+      const rowOf = (t: string) => rows.find((r) => nk(r.tool) === nk(t));
+      const noBug: { tool: string; why: string }[] = s.notBugs || [];
       const line = `${name} ${runtime === 'Node' ? 'Node ' : ''}${runtime === 'C#' ? (s.version || '').replace(/^\.NET/, '.NET') : s.version} — ${Math.max(0, s.expected - (s.missing?.length || 0) - (s.empty || 0) - (s.falseEmpty || 0) - (s.failed || 0))}/${s.expected} expected tools OK` + (s.naByDesign?.length ? ` · ${s.naByDesign.length} N/A by design` : '');
       out.push({ type: 'TextBlock', text: `**${line}**`, wrap: true, spacing: 'Medium' });
+      {
+        const notTrig = s.missing?.length || 0; const missBugs = defects.filter((d: any) => d.observed === 'NOT_APPLICABLE').length;
+        const parts = [`Output ${(s.ok || 0) + (s.clean || 0)}`, s.empty ? `Empty ${s.empty}` : '', s.falseEmpty ? `False empty ${s.falseEmpty}` : '', s.failed ? `Failed ${s.failed}` : '', `Not triggered ${notTrig}`].filter(Boolean).join(' · ');
+        out.push({ type: 'TextBlock', text: `${parts}. Of the ${notTrig} not triggered: ${missBugs} bug${missBugs === 1 ? '' : 's'} (primary and secondary both missing, or the tool is in no metric) · ${noBug.length} no bug (the primary or the secondary of its metric was triggered).`, wrap: true, spacing: 'None', isSubtle: true, size: 'Small' });
+      }
       // Tool Trigger Log: one line per tool of this language (tool, triggered / result, detail), under the bug summary
-      const log = toolLogElements(name, String(j.branch || ''), (s.tools as ToolRow[]) || [], noteMax, withPrev ? previousRun(dir, key) : null, path.basename(path.dirname(path.resolve(dir))));
-      if (!defects.length && !repo.length) { out.push({ type: 'TextBlock', text: '✅ No tool bugs found', wrap: true, spacing: 'None', color: 'Good' }); out.push(...log); continue; }
-      const lines = defects.slice(0, 10).map((d) => `• ${d.tool} — ${String(d.tag).replace(/[\[\]]/g, '')}`);
+      const log = toolLogElements(name, String(j.branch || ''), rows, noteMax, withPrev ? previousRun(dir, key) : null, path.basename(path.dirname(path.resolve(dir))));
+      if (!defects.length && !repo.length) { out.push({ type: 'TextBlock', text: '✅ No tool bugs found', wrap: true, spacing: 'None', color: 'Good' }); if (noBug.length) out.push({ type: 'TextBlock', text: `Not triggered, no bug: ${noBug.slice(0, 8).map((n) => `${n.tool}${n.why ? ` (${n.why})` : ''}`).join('; ')}${noBug.length > 8 ? ' …' : ''}`, wrap: true, spacing: 'None', isSubtle: true }); out.push(...log); continue; }
+      const lines = defects.slice(0, 10).map((d) => { const r = rowOf(d.tool); return `• ${d.tool}${r?.kind ? ` (${r.kind}${r.metrics ? ': ' + r.metrics : ''})` : ''} — ${String(d.tag).replace(/[\[\]]/g, '')}`; });
       if (defects.length > 10) lines.push(`• … and ${defects.length - 10} more`);
       if (lines.length) out.push({ type: 'TextBlock', text: `❌ ${defects.length} tool bug${defects.length > 1 ? 's' : ''} (draft reports saved):\n\n${lines.join('\n\n')}`, wrap: true, spacing: 'None', color: 'Attention' });
+      if (noBug.length) out.push({ type: 'TextBlock', text: `✅ Not triggered, no bug: ${noBug.slice(0, 8).map((n) => `${n.tool}${n.why ? ` (${n.why})` : ''}`).join('; ')}${noBug.length > 8 ? ' …' : ''}`, wrap: true, spacing: 'None', isSubtle: true });
       if (repo.length) out.push({ type: 'TextBlock', text: `⚠ Repo-side failures (not platform bugs): ${repo.slice(0, 8).join(', ')}`, wrap: true, spacing: 'None', isSubtle: true });
       out.push(...log);
     }

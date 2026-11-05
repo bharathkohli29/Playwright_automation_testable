@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { toolRow, ToolRow } from './toolLog';
 import * as path from 'path';
+import { bugRule } from './bugRule';
 import { FileMap, PyDefect, PyStatus, R, PyResult, folderFor, isBlank, len, loadTool, nn, num } from './pyValidate';
 
 /**
@@ -216,6 +217,7 @@ export function checkJs(tool: string, f: FileMap): PyResult {
 
 // ---------- applying it ----------
 export interface JsSummary {
+  notBugs?: { tool: string; why: string }[]; // folder missing, but the primary/secondary rule says no bug (the other tool of the metric ran)
   tools?: ToolRow[]; // one row per tool for the Tool Trigger Log in Teams
   language: 'javascript'; version: string; packageManager: string; layout: string;
   expected: number; ok: number; clean: number; empty: number; falseEmpty: number; failed: number;
@@ -278,18 +280,19 @@ export function validateJavaScript(bd: string, rows: any[], inventory: Record<st
   // 2) whole-run summary: every tool of the matrix, independent of the table rows
   const sum: JsSummary = { language: 'javascript', version: v.label, packageManager: v.pm, layout: v.layout, expected: expectedTools(v).length, ok: 0, clean: 0, empty: 0, falseEmpty: 0, failed: 0, missing: [], naByDesign: [], optionalMissing: [], outsideMatrix: [], contamination: [], notApplicable: [], defects: [], repoDefects: [] };
   const ign = (process.env.JS_IGNORE_TOOLS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const rule = bugRule({ language: 'javascript', tools: JS_TOOLS, alias: ALIAS, has: (n) => !!fo(folders, n), level: (tt) => level(tt, node) });
   for (const t of JS_TOOLS) {
     const lv = level(t, node); const f = fo(folders, t);
     if (ign.includes(t)) continue;
     const r = f ? checkJs(t, loadTool(bd, f)) : null;
     const reportedNA = !!r && NA(r);
-    { const _row = toolRow(t, lv, !!f, r, reportedNA); if (_row) (sum.tools ||= []).push(_row); }
+    { const _row = toolRow(t, lv, !!f, r, reportedNA, rule.info(t, !!f)); if (_row) (sum.tools ||= []).push(_row); }
     if (lv === 'NO') {
       if (f && !reportedNA) { sum.outsideMatrix.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'RAN_BUT_EXCLUDED', note: `${t} ran on Node ${v.label} although it must be excluded (${why(t, node)})`, folder: f, ranOutsideMatrix: true }); }
       else sum.naByDesign.push(t);
       continue;
     }
-    if (!f) { if (lv === 'Y') { sum.missing.push(t); sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Node ${v.label} but was not triggered — no folder in the run` }); } else sum.optionalMissing.push(t); continue; }
+    if (!f) { if (lv === 'Y') { sum.missing.push(t); if (rule.mapped.has(t) && !rule.needed.has(t)) { (sum.notBugs ||= []).push({ tool: t, why: rule.info(t, false).why }); } else { sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Node ${v.label} but was not triggered — no folder in the run${rule.needed.has(t) ? ` (${rule.needed.get(t)})` : ''}` }); } } else sum.optionalMissing.push(t); continue; }
     if (reportedNA) { sum.notApplicable.push(t); if (lv === 'Y') sum.defects.push({ tool: t, tag: '[Planning Defect]', observed: 'NOT_APPLICABLE', note: `${t} is expected for Node ${v.label} but only reported not_applicable — ${r!.note}`, folder: f }); continue; }
     if (r!.status === 'OK') sum.ok++; else if (r!.status === 'CLEAN') sum.clean++;
     else if (r!.status === 'FALSE_EMPTY') { sum.falseEmpty++; sum.defects.push({ tool: t, tag: '[False Empty Defect]', observed: 'Empty JSON with 0 files scanned', note: r!.note, folder: f }); }

@@ -13,11 +13,16 @@ import type { PyResult } from './pyValidate';
  * Tools that are excluded for the version and did not run ("N/A by design") get no row.
  */
 export type ToolState = 'OUTPUT' | 'EMPTY' | 'FAILED' | 'SKIPPED' | 'NOT_TRIGGERED' | 'OUTSIDE';
-export interface ToolRow { tool: string; level: string; state: ToolState; note: string }
+export interface ToolRow { tool: string; level: string; state: ToolState; note: string; kind?: string; metrics?: string; verdict?: string; why?: string; bug?: 'Bug' | 'No bug' | 'Repo' }
+export type RoleInfo = { kind: string; metrics: string; verdict: string; why: string };
 
 const tidy = (s: string) => String(s || '').replace(/\s+/g, ' ').trim();
 
-export function toolRow(tool: string, level: string, triggered: boolean, r: PyResult | null, reportedNA: boolean): ToolRow | null {
+export function toolRow(tool: string, level: string, triggered: boolean, r: PyResult | null, reportedNA: boolean, info?: RoleInfo): ToolRow | null {
+  const row = baseRow(tool, level, triggered, r, reportedNA);
+  return row && info ? { ...row, kind: info.kind, metrics: info.metrics, verdict: info.verdict, why: info.why } : row;
+}
+function baseRow(tool: string, level: string, triggered: boolean, r: PyResult | null, reportedNA: boolean): ToolRow | null {
   if (level === 'NO') return triggered && !reportedNA && r && r.status !== 'FAILED' ? { tool, level, state: 'OUTSIDE', note: 'ran, but must be excluded for this version' } : null;
   if (!triggered || !r) return { tool, level, state: 'NOT_TRIGGERED', note: level === 'OPT' ? 'No S3 folder (optional)' : 'No S3 folder' };
   const note = tidy(r.note);
@@ -76,16 +81,19 @@ export function toolLogElements(languageName: string, branch: string, rows: Tool
   const pLab = prev ? (sameDay ? `${prev.date} ${prev.time}` : prev.date) : ''; const tLab = st ? (sameDay ? `${st.date} ${st.time}` : thisDate) : thisDate;
   const trig = (s?: ToolState) => (s === undefined ? '–' : s === 'NOT_TRIGGERED' ? '❌' : '✅');
   const out = (s?: ToolState) => (s === undefined ? '–' : ICON[s]);
-  const cols = prev ? [{ width: 1 }, { width: 5 }, { width: 3 }, { width: 3 }, { width: 3 }, { width: 9 }] : [{ width: 1 }, { width: 5 }, { width: 3 }, { width: 3 }, { width: 9 }];
+  const cols = prev ? [{ width: 1 }, { width: 5 }, { width: 3 }, { width: 3 }, { width: 3 }, { width: 3 }, { width: 2 }, { width: 8 }] : [{ width: 1 }, { width: 5 }, { width: 3 }, { width: 3 }, { width: 3 }, { width: 2 }, { width: 9 }];
   const header = prev
-    ? [head('#'), head('Tool'), head(`Triggered ${pLab}`), head(`Triggered ${tLab}`), head(`S3 output (${pLab} → ${tLab})`), head('Tool output')]
-    : [head('#'), head('Tool'), head(`Triggered ${tLab}`), head('S3 output'), head('Tool output')];
+    ? [head('#'), head('Tool'), head('Type'), head(`Triggered ${pLab}`), head(`Triggered ${tLab}`), head(`S3 output (${pLab} → ${tLab})`), head('Bug?'), head('Tool output')]
+    : [head('#'), head('Tool'), head('Type'), head(`Triggered ${tLab}`), head('S3 output'), head('Bug?'), head('Tool output')];
   const body = rows.map((r, i) => {
     const p = prev ? prev.rows.get(r.tool)?.state : undefined;
-    const detail = cut(r.note) || (r.state === 'OUTPUT' ? 'Output' : '');
+    const why = r.state === 'NOT_TRIGGERED' && r.why ? ` — ${r.why}` : '';
+    const detail = cut(r.note + why) || (r.state === 'OUTPUT' ? 'Output' : '');
+    const bug = r.bug === 'Bug' ? '❌ Bug' : r.bug === 'No bug' ? '✅ No bug' : r.bug === 'Repo' ? '⚠ Repo' : '–';
+    const type = r.kind || '–';
     return prev
-      ? [cell(String(i + 1)), cell(r.tool, { wrap: true }), cell(trig(p)), cell(trig(r.state)), cell(`${out(p)} → ${out(r.state)}`), cell(detail, { wrap: true })]
-      : [cell(String(i + 1)), cell(r.tool, { wrap: true }), cell(trig(r.state)), cell(out(r.state)), cell(detail, { wrap: true })];
+      ? [cell(String(i + 1)), cell(r.tool, { wrap: true }), cell(type, { wrap: true }), cell(trig(p)), cell(trig(r.state)), cell(`${out(p)} → ${out(r.state)}`), cell(bug, { wrap: true }), cell(detail, { wrap: true })]
+      : [cell(String(i + 1)), cell(r.tool, { wrap: true }), cell(type, { wrap: true }), cell(trig(r.state)), cell(out(r.state)), cell(bug, { wrap: true }), cell(detail, { wrap: true })];
   });
   return [
     { type: 'TextBlock', text: `**Tool Trigger Log: ${languageName}** (branch ${branch})`, wrap: true, spacing: 'Medium', weight: 'Bolder' },
