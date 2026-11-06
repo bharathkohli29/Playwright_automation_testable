@@ -1,10 +1,12 @@
+process.env.RCA_CODE = 'off'; // the report tests never reach for the platform code or the network
+import { matchToolRules } from '../utils/eksRules';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { buildFactPack, defectiveTools, allTools } from '../utils/rcaFacts';
-import { reportFromRules, reportHtml, writeReports } from '../utils/rcaReport';
+import { reportFromRules, reportHtml, writeReports, combinedHtml } from '../utils/rcaReport';
 import { chromium } from '@playwright/test';
 
 /** the PDF tests need the Chromium that Playwright installs; the GitHub check skips that download, so they are skipped there */
@@ -57,17 +59,19 @@ test('a tool with no log line gets an honest report; a planning defect is marked
   const gh = reportFromRules(buildFactPack(d, 'ghost')); assert.match(gh.why, /no log lines/i); assert.equal(gh.evidence, '(none)');
 });
 
-test('one PDF per tool in Triggered / Not triggered, rebuilt each time; the page holds every part and no other tool', { skip: noBrowser }, async () => {
+test('RCA_SPLIT=on: one PDF per tool in Triggered / Not triggered, rebuilt each time; the page holds every part and no other tool', { skip: noBrowser }, async () => {
+  process.env.RCA_SPLIT = 'on'; try {
   const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
   fs.mkdirSync(path.join(d, 'RCA Report'), { recursive: true }); fs.writeFileSync(path.join(d, 'RCA Report', 'RCA_old.md'), 'left by an earlier attempt');
   const rows = await writeReports(d);
   assert.deepEqual(rows.map((r) => r.file).sort(), ['Triggered/RCA_gitleaks.pdf', 'Triggered/RCA_pip-audit.pdf']);
-  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).sort(), ['Triggered', 'index.json']); // the old file is gone
+  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).filter((f) => !/^RCA_Report_.*\.pdf$/.test(f)).sort(), ['Triggered', 'index.json']); // the old file is gone; the one combined report is written as well
   for (const f of rows.map((r) => path.join(d, 'RCA Report', r.file))) { const b = fs.readFileSync(f); assert.equal(b.subarray(0, 5).toString(), '%PDF-'); assert.ok(b.length > 4000); }
   const p = buildFactPack(d, 'pip-audit'); const html = reportHtml(reportFromRules(p), p);
   for (const h of ['What happened', 'Why', 'Evidence', 'Impact', 'Who fixes it', 'What to do', 'Confidence', 'Tool profile']) assert.match(html, new RegExp(h));
   assert.doesNotMatch(html, /gitleaks/); // no other tool leaks into this report
   assert.match(reportHtml({ ...reportFromRules(p), evidence: '<script>x</script>' }, p), /&lt;script&gt;/); // text from logs is escaped
+  } finally { delete process.env.RCA_SPLIT; }
 });
 
 test('green layout for a triggered tool that is fine, red for the others; not triggered tools go to their own folder; only red ones reach the writer', { skip: noBrowser }, async () => {
@@ -82,7 +86,7 @@ test('green layout for a triggered tool that is fine, red for the others; not tr
   const g = reportFromRules(green); const r = reportFromRules(red);
   assert.equal(g.tone, 'green'); assert.equal(g.state, 'TRIGGERED · RESULT OK'); assert.match(g.evidence, /cc for 14 file/); assert.equal(r.tone, 'red'); assert.equal(r.state, 'NOT TRIGGERED');
   assert.match(reportHtml(g, green), /#047857/); assert.doesNotMatch(reportHtml(g, green), /#b91c1c/); assert.match(reportHtml(r, red), /#b91c1c/); assert.match(reportHtml(r, red), /NOT TRIGGERED/);
-  const asked: string[] = []; const rows = await writeReports(d, undefined, async (p) => { asked.push(p.tool); return { report: reportFromRules(p), used: 'rules' }; });
+  process.env.RCA_SPLIT = 'on'; const asked: string[] = []; let rows: Awaited<ReturnType<typeof writeReports>>; try { rows = await writeReports(d, undefined, async (p) => { asked.push(p.tool); return { report: reportFromRules(p), used: 'rules' }; }); } finally { delete process.env.RCA_SPLIT; }
   assert.deepEqual(asked, ['flake8']); // the green report is written from the facts, the writer is only asked about the red one
   assert.deepEqual(rows.map((x) => x.file).sort(), ['Not triggered/RCA_flake8.pdf', 'Triggered/RCA_radon.pdf']);
 });
@@ -110,4 +114,33 @@ test('RUNTIME_IMAGE_DRIFT in a failure.json is a known cause: the plan froze ano
   fs.writeFileSync(path.join(d, 's3-check.json'), JSON.stringify({ run_id: 'r-1', branch: 'PY_V312_X', python: { version: '3.12', tools: [], defects: [{ tool: 'radon', tag: '[Runner Execution Defect]', observed: 'FAILED', note: 'failure.json — RUNTIME_IMAGE_DRIFT: plan froze environment 5a74d7f2ff7f52b4; this worker is 863dc97044a502f8' }] }, checks: [] }));
   const p = buildFactPack(d, 'radon'); assert.equal(p.rule?.id, 'runtime-image-drift'); const r = reportFromRules(p);
   assert.match(r.why, /5a74d7f2ff7f52b4/); assert.match(r.why, /863dc97044a502f8/); assert.match(r.owner, /Platform/); assert.match(r.evidence, /RUNTIME_IMAGE_DRIFT/);
+});
+
+test('WAVE_IDENTITY_MISMATCH: a run refused in planning because a tool has no wave in the policy is a known cause', () => {
+  const t = '"message": "whitebox_run.failed (...)", "failure_reason": "WAVE_IDENTITY_MISMATCH", "error": "Activity task failed", "failing_activity_type": "planning"';
+  const r = matchToolRules({ tool: 'any', text: t });
+  assert.equal(r?.id, 'wave-identity-mismatch'); assert.match(r?.rootCause || '', /no wave/); assert.match(r?.owner || '', /Platform/);
+  assert.equal(matchToolRules({ tool: 'any', text: 'all fine' })?.id === 'wave-identity-mismatch', false);
+});
+
+test('RCA_SPLIT=off: ONE overview report: a cover with every tool, then a section per tool with the three sources; no per-tool files', { skip: noBrowser }, async () => {
+  process.env.RCA_SPLIT = 'off'; try {
+  const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
+  const rows = await writeReports(d);
+  const files = fs.readdirSync(path.join(d, 'RCA Report')).sort(); assert.equal(files.length, 2); assert.ok(files.includes('index.json')); const pdf = files.find((f) => f.endsWith('.pdf'))!; assert.match(pdf, /^RCA_Report_/);
+  assert.deepEqual([...new Set(rows.map((r) => r.file))], [pdf]); const b = fs.readFileSync(path.join(d, 'RCA Report', pdf)); assert.equal(b.subarray(0, 5).toString(), '%PDF-'); assert.ok(b.length > 6000);
+  const items = rows.map((r) => buildFactPack(d, r.tool)).map((p) => ({ r: reportFromRules(p), p })); const html = combinedHtml(items);
+  for (const t of ['gitleaks', 'pip-audit', 'ROOT CAUSE ANALYSIS REPORT', 'S3 result', 'EKS logs', 'Platform code', 'All tools']) assert.match(html, new RegExp(t));
+  assert.equal((html.match(/class="tool"/g) || []).length, 2);
+  } finally { delete process.env.RCA_SPLIT; }
+});
+
+test('by default every tool gets its OWN PDF in Triggered / Not triggered, each with the three sources; a script failure is its own PDF; no combined file unless RCA_COMBINED=on', { skip: noBrowser }, async () => {
+  delete process.env.RCA_SPLIT; delete process.env.RCA_COMBINED;
+  const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
+  const rows = await writeReports(d, undefined, undefined, { failure: `1 case(s) failed:${String.fromCharCode(10)}[X/15] locator.click: Timeout 20000ms exceeded.` });
+  assert.deepEqual(rows.map((r) => r.file).sort(), ['Triggered/RCA_gitleaks.pdf', 'Triggered/RCA_pip-audit.pdf']);
+  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).sort(), ['Script_failure.pdf', 'Triggered', 'index.json']); // no combined PDF
+  const html = reportHtml(reportFromRules(buildFactPack(d, 'pip-audit')), buildFactPack(d, 'pip-audit')); for (const t of ['S3 result', 'EKS logs', 'Platform code']) assert.match(html, new RegExp(t));
+  process.env.RCA_COMBINED = 'on'; try { await writeReports(d); assert.ok(fs.readdirSync(path.join(d, 'RCA Report')).some((f) => /^RCA_Report_.*\.pdf$/.test(f))); } finally { delete process.env.RCA_COMBINED; }
 });

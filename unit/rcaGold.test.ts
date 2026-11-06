@@ -1,3 +1,4 @@
+process.env.RCA_CODE = 'off'; // hermetic: no platform-code lookup or fetch in this test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';

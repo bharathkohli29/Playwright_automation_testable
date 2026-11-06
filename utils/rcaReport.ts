@@ -1,3 +1,6 @@
+import { codeSection } from './rcaCode';
+import { analyseScriptFailure, scriptFailureHtml } from './rcaScriptFailure';
+import type { CodeStatus } from './rcaCode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { chromium } from '@playwright/test';
@@ -106,13 +109,23 @@ ${f.run.length ? `<h2>The run</h2><table class="sm">${f.run.map(([k, v]) => `<tr
 }
 
 /** the report as A4 pages (HTML for the PDF): the summary on page 1, the tool profile from page 2 */
-export function reportHtml(r: RcaReport, p: FactPack): string {
-  const tone = r.tone === 'green' ? { bar: '#047857', soft: '#ecfdf5', edge: '#34d399', label: r.state } : { bar: '#b91c1c', soft: '#fef2f2', edge: '#f87171', label: r.state };
-  const meta: Array<[string, string]> = [['Tool', p.tool], ['Run', p.runId || '-'], ['Branch', p.branch || '-'], ['Language', [p.language, p.version].filter(Boolean).join(' ') || '-'], ['Classification', p.classification || '-'], ['Written by', r.source === 'model' ? 'local model (facts and evidence from the logs and rules)' : 'rules (known patterns)']];
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-*{box-sizing:border-box}body{font:11.5px/1.5 "Segoe UI",Arial,sans-serif;color:#1f2937;margin:0}
-.banner{background:${tone.bar};color:#fff;padding:13px 16px;border-radius:6px}.banner h1{margin:0;font-size:18px}.banner div{font-size:10.5px;opacity:.92;margin-top:3px;letter-spacing:.04em}
-.one{margin:12px 0;padding:11px 14px;border:2px solid ${tone.edge};background:${tone.soft};border-radius:6px;font-size:13px;font-weight:600}
+const CODE_WHY: Record<CodeStatus, string> = { found: '', off: 'not available: no local platform checkout is set (RCA_CODE_DIR)', 'no-code-in-facts': 'not needed: the logs name no error code to look up', 'not-in-codebase': 'the error code is not in the platform checkout' };
+/** the proof from the three sources a root cause report needs: the S3 result, the EKS logs (pods and services) and the platform code */
+function threeSources(r: RcaReport, p: FactPack): string {
+  const code = codeSection(p);
+  const s3Has = !!(p.observed || p.s3Note); const a = p.decisive || p.attempts[p.attempts.length - 1];
+  const eksHas = p.captured && !!(p.attempts.length || p.serviceLines.length || p.failureJson.length);
+  const tick = (ok: boolean) => (ok ? '&#10004;' : '&#10008;');
+  const li = (xs: string[]) => (xs.length ? `<ul>${xs.map((x) => `<li>${esc(x.slice(0, 260))}</li>`).join('')}</ul>` : '');
+  const s3Html = s3Has ? `<p><b>Result:</b> ${esc(p.observed || '-')}${p.classification ? ` · ${esc(p.classification)}` : ''}</p>${p.s3Note ? `<p>${esc(p.s3Note.slice(0, 400))}</p>` : ''}` : '<p class="small">No S3 result for this tool in this run.</p>';
+  const eksHtml = eksHas ? `${a ? `<p><b>Pod:</b> ${esc(a.pod)} · ${esc(a.phase || '-')}${a.exitCode != null ? ` · exit code ${a.exitCode}` : ''}${a.reason ? ` · ${esc(a.reason.slice(0, 200))}` : ''}</p>${li(a.lines.slice(-3))}` : '<p class="small">No pod of this tool was seen.</p>'}${p.serviceLines.length ? `<p><b>Service lines:</b></p>${li(p.serviceLines.slice(-4).map((s) => s.text))}` : ''}${p.failureJson.length ? `<p><b>failure.json:</b></p>${li(p.failureJson.slice(0, 3))}` : ''}` : '<p class="small">Not captured: the live cluster capture of this run is missing, so there are no pod or service lines.</p>';
+  const codeHtmlBlock = code.refs.length ? code.refs.map((c) => `<div class="ev"><b>${esc(c.code)}</b> · ${esc(c.file)}:${c.line}<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:10.5px">${esc(c.snippet)}</pre></div>`).join('') + '<p class="small">Read-only lookup, platform code: ' + esc(code.version) + '. Secrets removed. It shows where the code is raised; it does not change the cause.</p>' : `<p class="small">${esc(CODE_WHY[code.status])}</p>`;
+  return `<h2>Evidence from the three sources</h2><div class="strip"><div><b>S3 result</b><span>${tick(s3Has)}</span></div><div><b>EKS logs</b><span>${tick(eksHas)}</span></div><div><b>Platform code</b><span>${tick(code.refs.length > 0)}</span></div></div><h3>1 · S3 result</h3>${s3Html}<h3>2 · EKS logs (pods and services)</h3>${eksHtml}<h3>3 · Platform code</h3>${codeHtmlBlock}<div class="ev"><b>Key line:</b> ${esc(r.evidence)}</div>`;
+}
+
+const BASE_CSS = `*{box-sizing:border-box}body{font:11.5px/1.5 "Segoe UI",Arial,sans-serif;color:#1f2937;margin:0}
+.banner{color:#fff;padding:13px 16px;border-radius:6px}.banner h1{margin:0;font-size:18px}.banner div{font-size:10.5px;opacity:.92;margin-top:3px;letter-spacing:.04em}
+.one{margin:12px 0;padding:11px 14px;border-radius:6px;font-size:13px;font-weight:600}
 h2{font-size:12.5px;margin:14px 0 5px;color:#111827;border-bottom:1px solid #e5e7eb;padding-bottom:3px}
 p{margin:4px 0}ul{margin:4px 0 4px 18px;padding:0}li{margin:2px 0}
 .ev{background:#0f172a;color:#e2e8f0;padding:9px 11px;border-radius:5px;font:10px/1.45 Consolas,monospace;white-space:pre-wrap;word-break:break-all}
@@ -120,21 +133,44 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #e5e7eb;padding
 .foot{margin-top:14px;font-size:9.5px;color:#6b7280}
 .strip{display:flex;gap:8px;margin:0 0 4px}.strip div{flex:1;border:1px solid #e5e7eb;border-radius:5px;padding:5px 8px;background:#f9fafb}.strip b{display:block;font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em}.strip span{font-size:11.5px;font-weight:600}
 h2{break-after:avoid}tr{break-inside:avoid}.p2{page-break-before:always}.sm td,.sm th{font-size:9.5px}.sm th{width:auto}.mono{font-family:Consolas,monospace;word-break:break-all}.none{color:#6b7280;font-style:italic}
-</style></head><body>
-<div class="banner"><h1>ROOT CAUSE ANALYSIS: ${esc(p.tool)}</h1><div>${esc([tone.label, [p.language, p.version].filter(Boolean).join(' '), p.branch && `branch ${p.branch}`, p.runId && `run ${p.runId.slice(0, 8)}`].filter(Boolean).join(' · '))}</div></div>
-<div class="one">${esc(r.oneLine)}</div>
+.tool{page-break-before:always}.tool:first-of-type{page-break-before:auto}.cover .big{font-size:22px;font-weight:700;margin:0 0 4px}.sumtab td,.sumtab th{font-size:10px;width:auto}.pill{display:inline-block;padding:1px 7px;border-radius:9px;font-size:9.5px;font-weight:700;color:#fff}`;
+
+function reportBody(r: RcaReport, p: FactPack): string {
+  const tone = r.tone === 'green' ? { bar: '#047857', soft: '#ecfdf5', edge: '#34d399', label: r.state } : { bar: '#b91c1c', soft: '#fef2f2', edge: '#f87171', label: r.state };
+  const meta: Array<[string, string]> = [['Tool', p.tool], ['Run', p.runId || '-'], ['Branch', p.branch || '-'], ['Language', [p.language, p.version].filter(Boolean).join(' ') || '-'], ['Classification', p.classification || '-'], ['Written by', r.source === 'model' ? 'local model (facts and evidence from the logs and rules)' : 'rules (known patterns)']];
+  return `<section class="tool" id="${esc(safe(p.tool))}">
+<div class="banner" style="background:${tone.bar}"><h1>ROOT CAUSE ANALYSIS: ${esc(p.tool)}</h1><div>${esc([tone.label, [p.language, p.version].filter(Boolean).join(' '), p.branch && `branch ${p.branch}`, p.runId && `run ${p.runId.slice(0, 8)}`].filter(Boolean).join(' · '))}</div></div>
+<div class="one" style="border:2px solid ${tone.edge};background:${tone.soft}">${esc(r.oneLine)}</div>
 ${strip(p)}
 <h2>What happened</h2><ul>${r.whatHappened.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
 <h2>Why</h2><p>${esc(r.why)}</p>
-<h2>Evidence</h2><div class="ev">${esc(r.evidence)}</div>
+${threeSources(r, p)}
 <h2>Impact</h2><p>${esc(r.impact)}</p>
 <h2>Who fixes it</h2><p>${esc(r.owner)}</p>
 <h2>What to do</h2><p>${esc(r.fix)}</p>
 <h2>Confidence</h2><p>${esc(r.confidence)}</p>
 <h2>Run details</h2><table>${meta.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table>
 ${profileHtml(p)}
-<div class="foot">Generated automatically from the QA EKS logs and the S3 result of this run. A draft for people to check.</div>
-</body></html>`;
+<div class="foot">Generated automatically from the S3 result, the QA EKS logs and the platform code. A draft for people to check.</div>
+</section>`;
+}
+
+/** one tool: a complete HTML document (used for the optional one-PDF-per-tool output and by the tests) */
+export function reportHtml(r: RcaReport, p: FactPack): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${reportBody(r, p)}</body></html>`;
+}
+
+export interface ReportItem { r: RcaReport; p: FactPack }
+/** the ONE report of the run: a cover with the summary of every tool, then one section per tool (red first), each with the three sources of evidence */
+export function combinedHtml(items: ReportItem[], lead = ''): string {
+  const first = items[0]?.p; const red = items.filter((i) => i.r.tone === 'red'); const green = items.length - red.length; const notTrig = items.filter((i) => !i.p.triggered).length;
+  const order = [...red.sort((a, b) => Number(a.p.triggered) - Number(b.p.triggered) || a.p.tool.localeCompare(b.p.tool)), ...items.filter((i) => i.r.tone === 'green').sort((a, b) => a.p.tool.localeCompare(b.p.tool))];
+  const row = (i: ReportItem) => `<tr><td><a href="#${esc(safe(i.p.tool))}">${esc(i.p.tool)}</a></td><td><span class="pill" style="background:${i.r.tone === 'green' ? '#047857' : '#b91c1c'}">${esc(i.r.state)}</span></td><td>${esc(i.r.oneLine)}</td><td>${esc(i.r.owner)}</td></tr>`;
+  const cover = `<section class="cover"><div class="banner" style="background:#1f3a5f"><h1>ROOT CAUSE ANALYSIS REPORT</h1><div>${esc([first?.branch && `branch ${first.branch}`, first?.runId && `run ${first.runId.slice(0, 8)}`, [first?.language, first?.version].filter(Boolean).join(' ')].filter(Boolean).join(' · '))}</div></div>
+<div class="strip" style="margin-top:12px"><div><b>Tools</b><span>${items.length}</span></div><div><b>Fine</b><span>${green}</span></div><div><b>Need attention</b><span>${red.length}</span></div><div><b>Not triggered</b><span>${notTrig}</span></div></div>
+<h2>Evidence used for every tool</h2><p>S3 result of the run, EKS logs (pods and services) of the run, and the platform code where an error code is raised. Each tool section shows which of the three were available.</p>
+<h2>All tools</h2><table class="sumtab"><tr><th>Tool</th><th>State</th><th>What happened</th><th>Who fixes it</th></tr>${order.map(row).join('')}</table></section>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${cover}${lead}${order.map((i) => reportBody(i.r, i.p)).join('')}</body></html>`;
 }
 
 /** a writer turns one fact pack into a report; the default is the rule writer, rcaWriter.writeReport is the model writer (it falls back to the rules itself) */
@@ -143,29 +179,57 @@ const ruleWriter: ReportWriter = async (p) => ({ report: reportFromRules(p), use
 export const RCA_DIR = 'RCA Report';
 export interface ReportRow { tool: string; kind: string; tone: string; state: string; triggered: boolean; file: string; rule: string; source: string; model?: string; ms?: number; note?: string }
 
+/** by default every tool gets its OWN PDF (Triggered / Not triggered), each holding all three sources of evidence; RCA_SPLIT=off turns that off. RCA_COMBINED=on adds one overview PDF of the whole run. */
+const splitOn = () => !/^(0|no|off|false)$/i.test((process.env.RCA_SPLIT || '').trim());
+const combinedOn = () => /^(1|yes|on|true)$/i.test((process.env.RCA_COMBINED || '').trim()) || !splitOn();
+/** a complete HTML document around ready-made sections (for the script-failure page on its own) */
+export const docOf = (body: string): string => `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${body}</body></html>`;
+const pdfOpts = (footer: string) => ({ format: 'A4' as const, printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">${footer} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` });
+
 /**
- * Writes one PDF per tool of the run into <branch folder>/RCA Report/Triggered/ or /Not triggered/ (the folder is rebuilt, so an earlier attempt leaves nothing behind).
+ * Writes ONE report for the run: <branch folder>/RCA Report/RCA_Report_<branch>_<run>.pdf (a cover with every tool, then a section per tool with its S3, EKS and
+ * platform-code evidence). The folder is rebuilt, so an earlier attempt leaves nothing behind. By default it writes one PDF per tool in Triggered / Not triggered; RCA_COMBINED=on also writes one overview PDF.
  * Green layout = triggered and fine, red layout = not triggered, failed, empty or not expected. Only the red ones are worded by the model.
  */
-export async function writeReports(branchDir: string, only?: string[], writer: ReportWriter = ruleWriter): Promise<ReportRow[]> {
+export async function writeReports(branchDir: string, only?: string[], writer: ReportWriter = ruleWriter, opts: { failure?: string } = {}): Promise<ReportRow[]> {
   const list = only?.length ? only : allTools(branchDir);
   const out = path.join(branchDir, RCA_DIR);
+  if (!list.length && !opts.failure) return []; // nothing to report on: the reports that are already there stay (an earlier good run is never wiped by an empty one)
   fs.rmSync(out, { recursive: true, force: true });
-  if (!list.length) return []; // nothing to report on: no empty folder
+  if (!list.length) {
+    // the branch failed before any tool data exists: the report is the script-failure page alone (the three sources it could read), never nothing
+    fs.mkdirSync(out, { recursive: true }); const nm = `RCA_Report_${safe(path.basename(branchDir))}.pdf`;
+    const b0 = await chromium.launch();
+    try { const pg = await b0.newPage(); await pg.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure as string))), { waitUntil: 'load' }); await pg.pdf({ path: path.join(out, nm), ...pdfOpts(`RCA · ${esc(path.basename(branchDir))}`) }); } finally { await b0.close().catch(() => {}); }
+    const row: ReportRow = { tool: '(script step)', kind: 'unknown', tone: 'red', state: 'SCRIPT FAILURE', triggered: false, file: nm, rule: '', source: 'rules' };
+    fs.writeFileSync(path.join(out, 'index.json'), JSON.stringify({ reports: [row] }, null, 2)); return [row];
+  }
   const rows: ReportRow[] = [];
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext();
+    const items: ReportItem[] = []; const meta: Array<{ tool: string; w: any; p: FactPack }> = [];
     for (const tool of list) {
       const p = buildFactPack(branchDir, tool); const base = reportFromRules(p);
       const w = base.tone === 'green' ? { report: base, used: 'rules' as const } : await writer(p); // a healthy tool needs no wording help
-      const sub = p.triggered ? 'Triggered' : 'Not triggered'; fs.mkdirSync(path.join(out, sub), { recursive: true });
-      const file = `${sub}/RCA_${safe(tool)}.pdf`;
-      const page = await ctx.newPage();
-      try {
-        await page.setContent(reportHtml(w.report, p), { waitUntil: 'load' });
-        await page.pdf({ path: path.join(out, file), format: 'A4', printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">RCA · ${esc(tool)} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` });
-      } finally { await page.close().catch(() => {}); }
+      items.push({ r: w.report, p }); meta.push({ tool, w, p });
+    }
+    const first = items[0].p; const combined = `RCA_Report_${safe(first.branch || path.basename(branchDir))}${first.runId ? `_${first.runId.slice(0, 8)}` : ''}.pdf`;
+    fs.mkdirSync(out, { recursive: true });
+    if (combinedOn()) {
+      const cpage = await ctx.newPage();
+      try { await cpage.setContent(combinedHtml(items, opts.failure ? scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure)) : ''), { waitUntil: 'load' }); await cpage.pdf({ path: path.join(out, combined), ...pdfOpts(`RCA · ${esc(first.branch || '')}`) }); } finally { await cpage.close().catch(() => {}); }
+    } else if (opts.failure) { // the script's own failure is its own PDF next to the folders, never mixed into a tool's report
+      const fpage = await ctx.newPage();
+      try { await fpage.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure))), { waitUntil: 'load' }); await fpage.pdf({ path: path.join(out, 'Script_failure.pdf'), ...pdfOpts('RCA · script failure') }); } finally { await fpage.close().catch(() => {}); }
+    }
+    for (const { tool, w, p } of meta) {
+      let file = combined;
+      if (splitOn()) {
+        const sub = p.triggered ? 'Triggered' : 'Not triggered'; fs.mkdirSync(path.join(out, sub), { recursive: true }); file = `${sub}/RCA_${safe(tool)}.pdf`;
+        const page = await ctx.newPage();
+        try { await page.setContent(reportHtml(w.report, p), { waitUntil: 'load' }); await page.pdf({ path: path.join(out, file), ...pdfOpts(`RCA · ${esc(tool)}`) }); } finally { await page.close().catch(() => {}); }
+      }
       rows.push({ tool, kind: w.report.kind, tone: w.report.tone, state: w.report.state, triggered: p.triggered, file, rule: p.rule?.id || '', source: 'model' in w && w.used === 'model' ? 'model' : w.used, model: (w as any).model, ms: (w as any).ms, note: (w as any).note });
     }
   } finally { await browser.close().catch(() => {}); }

@@ -16,6 +16,8 @@ import { warningCount } from './warn';
 import { writeRoundSummary } from './roundSummary';
 import { recordPostStep, refreshTimingWorkbook } from './timings';
 import { writeReports, RCA_DIR } from './rcaReport';
+import { prepareCode } from './rcaCode';
+import { analyseScriptFailure } from './rcaScriptFailure';
 import { rcaModelEnabled, writeReport } from './rcaWriter';
 
 /**
@@ -31,6 +33,10 @@ export interface PostJob {
   url?: string;
   minutes?: number;
   note?: string;
+  /** the script's wait for the run ended (RUN_TIMEOUT_MIN) before the run finished: S3 is not read, the root causes come from the QA EKS logs of this run */
+  timedOut?: boolean;
+  /** the script's own step failed (the failure text, for example [CS_X/15] locator.click: Timeout ...): the report gets a script-failure page and the Teams card says why */
+  failure?: string;
 }
 
 type StepState = 'pending' | 'running' | 'done' | 'skipped' | 'failed';
@@ -81,6 +87,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   // QA EKS logs of this run: already here when this PC ran the test, otherwise the live capture saved on SharePoint by the PC that did
   await step('eks', async () => fetchEksLive(job.branchDir));
   await step('s3', async () => {
+    if (job.timedOut) { console.log('  S3 check skipped — the run did not finish within the time limit (npm run post -- "<branch folder>" does the full check once it has finished)'); return 'skipped'; }
     if (!fs.existsSync(path.join(job.branchDir, 'run-details.json'))) { console.log('  S3 check skipped — no run-details.json'); return 'skipped'; }
     if (!hasAwsCredentials()) { console.log('  S3 check skipped — no AWS keys in .env (paste the QA-S3-Readonly keys, or run npm run s3 later)'); return 'skipped'; }
     console.log('  S3 evidence for this branch …');
@@ -93,21 +100,23 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   // A failed S3 step has two cases. With the run's live QA EKS capture (eks-live) the root causes are still written from it by the rules, and the
   // copy and the Teams card go out with them (without S3 tool results; the card says so). Without eks-live the folder and the card would carry no
   // tool data at all, only an empty "success", so both are skipped: fix the cause (usually expired AWS keys in .env) and run  npm run post -- "<branch folder>"  again.
-  const s3Failed = st.steps.s3 === 'failed';
+  const s3Failed = st.steps.s3 === 'failed' || !!job.timedOut;
   let eksOnly: { tools: number; lines: string[] } | null = null;
   await step('rca', async () => {
     if (!s3Failed) return 'skipped';
-    eksOnly = await writeEksOnlyRca(job.branchDir, `S3 check failed: ${(st.detail.s3 || '').split('[')[0].trim().slice(0, 120)}`);
+    eksOnly = await writeEksOnlyRca(job.branchDir, job.timedOut ? 'the run did not finish within the time limit' : `S3 check failed: ${(st.detail.s3 || '').split('[')[0].trim().slice(0, 120)}`);
     return eksOnly ? `${eksOnly.tools} tool(s) from the QA EKS logs` : 'skipped';
   });
-  const noData = s3Failed && !eksOnly;
+  // a branch that did not finish normally (job.failure / job.timedOut) is ALWAYS reported: the report, the SharePoint copy and the Teams card go out even when there is no tool data at all
+  const noData = s3Failed && !eksOnly && !job.failure && !job.timedOut;
   if (noData) console.log(`  ${job.branch}: S3 check failed and there is no QA EKS capture of this run, so SharePoint and Teams are NOT sent (they would carry no tool data). Fix it and run: npm run post -- "${job.branchDir}"`);
   else if (s3Failed) console.log(`  ${job.branch}: S3 check failed; SharePoint and Teams go out with the root causes from the QA EKS logs only`);
   // One RCA report per defective tool, in the folder "RCA Report" of the branch folder (uploaded to SharePoint with it, before the copy below). The local model words them
   // (RCA_MODEL=off: the rules do); a tool the model cannot word safely gets the rule-written report. Needs the S3 result or the live EKS capture.
   await step('rcareport', async () => {
     if (noData) return 'skipped';
-    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined);
+    try { prepareCode((m) => console.log(`  ${m}`)); } catch { /* the code section is optional */ }
+    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined, { failure: job.failure });
     if (!rows.length) return 'skipped';
     const m = rows.filter((r) => r.source === 'model').length; const red = rows.filter((r) => r.tone === 'red'); const nt = rows.filter((r) => !r.triggered).length; const slow = rows.find((r) => r.note);
     console.log(`  RCA Report: ${rows.length} tool report(s): ${rows.length - red.length} green, ${red.length} red (${nt} not triggered); ${m} of the red worded by the model${slow ? ` (${red.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
@@ -130,7 +139,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     const sent = await notifyTeams(undefined as unknown as Page, {
       branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
       minutes: job.minutes, branchDir: job.branchDir, evidenceUrl,
-      ...(eksOnly ? { headline: `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
+      ...(job.failure ? (() => { const sf = analyseScriptFailure(job.branchDir, job.failure); return { headline: sf.headline, extra: sf.lines }; })() : eksOnly ? { headline: job.timedOut ? `⏱️ Branch ${job.branch}: the run did not finish within ${job.minutes ?? '?'} minutes, root causes from the QA EKS logs of this run` : `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
     });
     if (!sent) throw new Error('Teams message could not be sent (network)');
     if (!dryRun() && runId) { try { fs.writeFileSync(sentFile, JSON.stringify({ run_id: runId, at: new Date().toISOString(), complete: !s3Failed }, null, 1)); } catch { /* ignore */ } }

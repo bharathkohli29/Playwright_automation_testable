@@ -28,3 +28,6 @@ queue-server/data/
 # Python caches
 __pycache__/
 *.pyc
+
+# the script's own read-only copy of the platform code (RCA Report)
+.rca-code/

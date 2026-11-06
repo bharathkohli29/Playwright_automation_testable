@@ -1,3 +1,4 @@
+import { codeSection } from './rcaCode';
 import { FactPack } from './rcaFacts';
 import { RcaReport, reportFromRules } from './rcaReport';
 import { dur, ist } from './rcaProfile';
@@ -92,7 +93,9 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+
  * A small model keeps cutting "3.12" to "3.1", so it never sees the version: the facts say <V> and the answer is filled in with the real one.
  */
 export function promptFor(p: FactPack, base: RcaReport): { system: string; facts: string; user: string; ver: RegExp | null } {
-  const facts = factsText(p, base);
+  // the third source: where the code of the platform raises the error code of this failure (read-only look-up, short, redacted; empty when the feature is off)
+  const code = codeSection(p);
+  const facts = factsText(p, base) + (code.refs.length ? `${String.fromCharCode(10)}CODE EVIDENCE (read-only look-up in the platform code, short and redacted):${String.fromCharCode(10)}${code.refs.map((c) => `- ${c.file}:${c.line}${String.fromCharCode(10)}${c.snippet}`).join(String.fromCharCode(10))}` : '');
   const ver = p.version ? new RegExp("(?<![\\w.])" + esc(p.version) + "(?![\\w])", 'g') : null;
   const shown = ver ? `${facts.replace(ver, '<V>')}
 (Write <V> exactly where the version belongs; never write a number for it.)` : `${facts}

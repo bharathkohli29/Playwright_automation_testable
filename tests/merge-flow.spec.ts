@@ -9,7 +9,7 @@ import { checkBranchS3, hasAwsCredentials } from '../utils/s3Evidence';
 import { describeAwsError } from '../utils/awsS3';
 import { dummyPrEnabled, pushDummyCommit, recordDummyOutcome, type DummyResult } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
-import { shareBranch } from '../utils/postprocess';
+import { shareBranch, runPostProcess } from '../utils/postprocess';
 import { attachPreviousFromSharePoint } from '../utils/sharepointHistory';
 import { startEksCollector, EksCollector } from '../utils/eksCollector';
 import { writeTimingWorkbook } from '../utils/timings';
@@ -149,6 +149,14 @@ builds.forEach((build, index) => {
       fs.writeFileSync(`${err}/network.json`, JSON.stringify(network, null, 2));
       if (/BLOCKED by the site/.test(msg)) fs.writeFileSync(`${err}/site-error.txt`, `${msg}\n`); // exactly what the site said, so the branch can be stopped at once and the reason is kept
       if (/BLOCKED by the site/.test(msg)) console.log(`  ⛔ stopping this branch: ${msg.slice(0, 200)} — saved in errors/site-error.txt; moving on to the next branch`);
+      // ALWAYS analysed: a branch that did not pass (a step failed, the wait for the run ended, the page closed, the site blocked it ...) goes to the worker too. It reads the run files,
+      // the QA EKS logs and the platform code, writes the RCA Report (with a script-failure page), copies the folder to SharePoint and sends the Teams card with the cause and the link.
+      if (!handedOff) {
+        let url = ''; try { url = page.url(); } catch { /* the page is gone */ }
+        const timedOut = /did not complete within/i.test(msg) && fs.existsSync(`${branchDir(build.dir)}/eks-live`);
+        const job = { branchDir: branchDir(build.dir), branch: build.branch, repo: build.repo, url, minutes: Math.round((Date.now() - started) / 60000), note, failure: msg.slice(0, 6000), ...(timedOut ? { timedOut: true } : {}) };
+        try { handedOff = postprocessMode() === 'background' ? enqueuePostProcess(job) : await runPostProcess(job).then(() => true); } catch { /* the failed card below is the fallback */ }
+      }
       throw e;
     } finally {
       await eks?.stop();

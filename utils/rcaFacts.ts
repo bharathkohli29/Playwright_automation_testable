@@ -87,6 +87,16 @@ export function buildFactPack(branchDir: string, tool: string): FactPack {
   const healthy = triggered && !s3.classification && podOk && (sk ? s3State === 'OUTPUT' || (s3State === '' && attempts.length > 0) : attempts.length > 0);
   const runDiag = readJson(path.join(live, 'run-diagnosis.json'));
   if (!rule && runDiag && (status === 'STUCK_WAITING' || status === 'NEVER_DISPATCHED')) rule = { id: runDiag.id, title: runDiag.title, rootCause: runDiag.rootCause, owner: runDiag.owner, fix: runDiag.fix, scope: 'run' };
+  // no log line at all for a tool that has no folder, but the run record counts skipped tasks: the tool was most likely planned and then skipped (inferred from the counts, said as such)
+  if (!rule && !triggered && !serviceLines.length && !attempts.length) {
+    const rd = readJson(path.join(branchDir, 'run-details.json')); const skipped = Number(rd?.skipped_tasks || 0);
+    if (rd && skipped > 0) {
+      const nNot = (sk ? (sj[sk].tools || []).filter((t: any) => t.state === 'NOT_TRIGGERED').length : 0);
+      const started = rd.started_at ? new Date(rd.started_at) : null; const old = started && Date.now() - started.getTime() > 24 * 3600 * 1000;
+      const why = old ? `the run is from ${started!.toISOString().slice(0, 10)}, older than the cluster logs this script can still read` : 'the cluster capture of this script holds no lines of this run';
+      rule = { id: 'skipped-by-platform-no-log', title: 'Planned, then skipped by the platform: the reason is not in the evidence', rootCause: `The run record says the platform skipped ${skipped} of ${rd.total_tasks} tasks${nNot ? `, and ${nNot} tools of this language have no result folder` : ''}. So this tool was most likely planned and then skipped by the platform (inferred from the counts, not proven). The reason is written in the orchestrator log of the run; that log is not available here (${why}).`, owner: 'Platform (planning / execution); the reason for the skip is not shown by the evidence', fix: 'Capture a NEW run live so the skip reason is saved (the script has to push its dummy commit for that: its token needs Contents read and write), or read the planning log of this run while it is still in the cluster.', scope: 'run' };
+    }
+  }
   return { tool, runId: s3.runId, branch: s3.branch, language: s3.language, version: s3.version, classification: s3.classification, observed: s3.observed, s3Note: s3.note, status, attempts, decisive, serviceLines, failureJson, rule, hasEvidence: !!(attempts.length || serviceLines.length || failureJson.length), profile: buildProfile(branchDir, tool, recs, s3.language, s3.version), triggered, s3State, healthy, captured: fs.existsSync(path.join(live, 'summary.json')) };
 }
 

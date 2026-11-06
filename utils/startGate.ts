@@ -1,7 +1,10 @@
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { eksSignedIn } from './eksLogin';
 import { eksAutoEnabled } from './eksAnalyze';
+import { prepareCode } from './rcaCode';
 
 /**
  * The FIRST thing the terminal does when someone starts the script (npm test / npm run go), before the model setup and before any browser step:
@@ -24,4 +27,18 @@ export function gate(): boolean {
   return ok;
 }
 
-if (require.main === module) { try { gate(); } catch (e) { console.log(`${YELLOW} sign-in check skipped (${e instanceof Error ? e.message : e})`); } process.exit(0); }
+/** starts utils/postSweep.ts detached (log: results/post-sweep.log); POST_SWEEP=off turns it off */
+export function startSweep(): { ok: boolean; msg: string } {
+  if (/^(0|no|off|false)$/i.test((process.env.POST_SWEEP || '').trim())) return { ok: false, msg: 'off (POST_SWEEP=off)' };
+  const root = path.resolve(__dirname, '..'); const tsx = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  if (!fs.existsSync(tsx)) return { ok: false, msg: 'not started (run npm install)' };
+  fs.mkdirSync(path.join(root, 'results'), { recursive: true }); const out = fs.openSync(path.join(root, 'results', 'post-sweep.log'), 'a');
+  const child = spawn(process.execPath, [tsx, path.join(__dirname, 'postSweep.ts')], { detached: true, stdio: ['ignore', out, out], cwd: root, windowsHide: true }); child.unref();
+  return { ok: true, msg: 'checked in the background; a branch an earlier run left behind gets its RCA Report, SharePoint copy and Teams card (log: results/post-sweep.log)' };
+}
+
+if (require.main === module) {
+  try { gate(); } catch (e) { console.log(`${YELLOW} sign-in check skipped (${e instanceof Error ? e.message : String(e)})`); }
+  try { const ok = prepareCode((m) => console.log(`  ${m}`)); console.log(`${ok ? GREEN : YELLOW} platform code ${ok ? 'ready: the reports show where each error is raised' : 'not available: the reports are written without the code section'}`); } catch (e) { console.log(`${YELLOW} platform code skipped (${e instanceof Error ? e.message : String(e)})`); }
+  process.exit(0);
+}
