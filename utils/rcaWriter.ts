@@ -110,7 +110,11 @@ export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promis
   if (!p.hasEvidence && !p.classification) return { report: base, used: 'rules', note: 'no evidence: nothing for the model to word' };
   const target = opts.host || HOST();
   if (!isLocalHost(target) && !remoteAllowed()) return { report: base, used: 'rules', note: `blocked: the Ollama address (${target}) is not on this PC; the team rule is local only (RCA_ALLOW_REMOTE_HOST=yes overrides)` };
-  const model = opts.model || MODEL(); const t0 = Date.now();
+  // the trained model (RCA_MODEL_NAME) answers first; when its answer is rejected by the checks below (or it is not installed), the stock model (RCA_MODEL_FALLBACK, default rca-writer) is asked;
+  // when that is rejected too, the report is the rule-written one. So a trained model can only make the wording better, never the facts worse.
+  const fb = (process.env.RCA_MODEL_FALLBACK ?? 'rca-writer').trim(); const models = [...new Set([opts.model || MODEL(), ...(fb ? [fb] : [])])]; const t00 = Date.now(); const errs: string[] = [];
+  for (const model of models) {
+  const t0 = Date.now();
   try {
     const { facts, user, ver } = promptFor(p, base);
     const raw = await ask((opts.host || HOST()).replace(/\/+$/, ''), model, user, (opts.timeoutSec ?? (Number(process.env.RCA_MODEL_SEC) || 120)) * 1000);
@@ -125,5 +129,7 @@ export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promis
     if (bad.length) throw new Error(`the answer contains ${bad.length} thing(s) not in the facts: ${bad.slice(0, 4).join(', ')}`);
     const report: RcaReport = { ...base, ...r, whatHappened: what, source: 'model', confidence: `${base.confidence} Wording by the local model ${model}; the evidence line, owner and facts come from the logs and rules.` };
     return { report, used: 'model', model, ms: Date.now() - t0 };
-  } catch (e) { return { report: base, used: 'rules', model, ms: Date.now() - t0, note: `rule-written report used: ${e instanceof Error ? e.message : e}` }; }
+  } catch (e) { errs.push(`${models.length > 1 ? `${model}: ` : ''}${e instanceof Error ? e.message : e}`); }
+  }
+  return { report: base, used: 'rules', model: models[0], ms: Date.now() - t00, note: `rule-written report used: ${errs.join('; ')}` };
 }

@@ -64,3 +64,25 @@ test('model status for the pre-flight: reachable and present, reachable but miss
     process.env.RCA_MODEL = 'off'; assert.equal((await rcaModelStatus(url, 'rca-writer')).enabled, false);
   } finally { delete process.env.RCA_MODEL; srv.close(); }
 });
+
+/** a fake Ollama that answers by the model named in the request, and records the order of the models asked */
+function fakeByModel(answers: Record<string, string>): Promise<{ url: string; asked: string[]; close: () => void }> {
+  const asked: string[] = [];
+  const s = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }).on('end', () => { const m = String(JSON.parse(b || '{}').model || ''); asked.push(m); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: { content: answers[m] ?? 'not json' } })); }); });
+  return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(s.address() as { port: number }).port}`, asked, close: () => s.close() })));
+}
+
+test('the trained model answers first; a rejected answer goes to the stock model, then to the rules', async () => {
+  const d = branch(); const keep = process.env.RCA_MODEL_FALLBACK; process.env.RCA_MODEL_FALLBACK = 'stock-x';
+  try {
+    const p = buildFactPack(d, 'cosmic-ray');
+    let f = await fakeByModel({ 'trained-x': GOOD, 'stock-x': GOOD }); let w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
+    assert.equal(w.used, 'model'); assert.equal(w.model, 'trained-x'); assert.deepEqual(f.asked, ['trained-x']); // the stock model is not even asked
+    f = await fakeByModel({ 'trained-x': 'nonsense', 'stock-x': GOOD }); w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
+    assert.equal(w.used, 'model'); assert.equal(w.model, 'stock-x'); assert.deepEqual(f.asked, ['trained-x', 'stock-x']);
+    f = await fakeByModel({ 'trained-x': 'nonsense', 'stock-x': 'also nonsense' }); w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
+    assert.equal(w.used, 'rules'); assert.match(w.note || '', /trained-x: .*stock-x: /); assert.deepEqual(f.asked, ['trained-x', 'stock-x']);
+    process.env.RCA_MODEL_FALLBACK = ''; f = await fakeByModel({ 'trained-x': 'nonsense', 'stock-x': GOOD }); w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
+    assert.equal(w.used, 'rules'); assert.deepEqual(f.asked, ['trained-x']); // an empty fallback turns the safety net off
+  } finally { if (keep === undefined) delete process.env.RCA_MODEL_FALLBACK; else process.env.RCA_MODEL_FALLBACK = keep; }
+});

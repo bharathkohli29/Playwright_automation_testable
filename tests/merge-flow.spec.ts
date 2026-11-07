@@ -10,6 +10,7 @@ import { describeAwsError } from '../utils/awsS3';
 import { dummyPrEnabled, pushDummyCommit, recordDummyOutcome, type DummyResult } from '../utils/dummyCommit';
 import { notifyTeams } from '../utils/teams';
 import { shareBranch, runPostProcess } from '../utils/postprocess';
+import { ensureLoggedIn, logoutEach } from '../utils/platformLogin';
 import { attachPreviousFromSharePoint } from '../utils/sharepointHistory';
 import { startEksCollector, EksCollector } from '../utils/eksCollector';
 import { writeTimingWorkbook } from '../utils/timings';
@@ -24,6 +25,8 @@ builds.forEach((build, index) => {
     test.setTimeout((Number(process.env.RUN_TIMEOUT_MIN || 60) + 30) * 60_000); // wait limit + room for the rest of the steps
     const cases = new CaseRunner(test, page);
     const flow = new MergeFlowPage(page);
+    // only with LOGOUT_EACH=on: each branch ends with a sign-out, so every branch after the first signs in again before it starts
+    if (logoutEach() && index > 0) await ensureLoggedIn(page);
     const network = watchNetwork(page);
     const id = (n: number) => `${build.id}/${n}`;
     const started = Date.now();
@@ -183,12 +186,15 @@ builds.forEach((build, index) => {
         });
       }
       echoWorkerLog(); // lines the background worker wrote meanwhile (earlier branches)
+      // only with LOGOUT_EACH=on: sign out of the platform when this branch is finished (the next branch signs in again); never fails the branch
+      if (logoutEach()) { try { await flow.logout(); console.log('  signed out of the platform: this branch is finished'); } catch { /* the page is closed or already signed out */ } }
     }
   });
 });
 
-// Once, after the last branch.
+// Once, after the last branch (skipped only when every branch already signed out itself: LOGOUT_EACH=on).
 test('Logout', async ({ page }) => {
+  test.skip(logoutEach(), 'every branch already signed out when it finished');
   const flow = new MergeFlowPage(page);
   await flow.gotoWithRetry('/execution-assistant');
   await flow.logout();
