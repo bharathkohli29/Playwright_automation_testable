@@ -5,6 +5,7 @@ import * as dotenv from 'dotenv';
 import { eksSignedIn } from './eksLogin';
 import { eksAutoEnabled } from './eksAnalyze';
 import { prepareCode } from './rcaCode';
+import { announceIfBlocked } from './eksIpNotice';
 
 /**
  * The FIRST thing the terminal does when someone starts the script (npm test / npm run go), before the model setup and before any browser step:
@@ -19,7 +20,7 @@ export function gate(): boolean {
   if (!eksAutoEnabled()) { console.log(`${YELLOW} QA EKS: EKS_AUTO is off, the cluster logs are not captured in this run`); return false; }
   if (eksSignedIn()) { console.log(`${GREEN} QA EKS cluster: signed in`); return true; }
   console.log(`\n${YELLOW} ${BOLD('QA EKS cluster: you are not signed in.')}`);
-  console.log('   A private browser window opens now: sign in there with the QA account (email, password, any MFA).');
+  console.log(`   A private browser window opens now: sign in there as ${process.env.EKS_LOGIN_EMAIL || 'the QA account'} (the account made for the EKS sign-in: email, password, any MFA).`);
   console.log('   The terminal waits for you; when it shows the green tick the other steps start.\n');
   const r = spawnSync('npx', ['tsx', 'utils/eksSetup.ts'], { stdio: 'inherit', shell: process.platform === 'win32' });
   const ok = eksSignedIn();
@@ -37,8 +38,10 @@ export function startSweep(): { ok: boolean; msg: string } {
   return { ok: true, msg: 'checked in the background; a branch an earlier run left behind gets its RCA Report, SharePoint copy and Teams card (log: results/post-sweep.log)' };
 }
 
-if (require.main === module) {
+if (require.main === module) (async () => {
   try { gate(); } catch (e) { console.log(`${YELLOW} sign-in check skipped (${e instanceof Error ? e.message : String(e)})`); }
+  // signed in, but is this PC's IP on the cluster allow-list? When not, the IP is shown here (and as a popup) with the text to send to the cluster admin
+  try { if (eksAutoEnabled() && eksSignedIn()) await announceIfBlocked(console.log); } catch { /* the check is optional */ }
   try { const ok = prepareCode((m) => console.log(`  ${m}`)); console.log(`${ok ? GREEN : YELLOW} platform code ${ok ? 'ready: the reports show where each error is raised' : 'not available: the reports are written without the code section'}`); } catch (e) { console.log(`${YELLOW} platform code skipped (${e instanceof Error ? e.message : String(e)})`); }
   process.exit(0);
-}
+})();

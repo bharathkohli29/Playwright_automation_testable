@@ -1,5 +1,6 @@
 import { codeSection } from './rcaCode';
 import { analyseScriptFailure, scriptFailureHtml } from './rcaScriptFailure';
+import { trailHtml, clearTrails } from './rcaTrail';
 import type { CodeStatus } from './rcaCode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -119,7 +120,7 @@ function threeSources(r: RcaReport, p: FactPack): string {
   const li = (xs: string[]) => (xs.length ? `<ul>${xs.map((x) => `<li>${esc(x.slice(0, 260))}</li>`).join('')}</ul>` : '');
   const s3Html = s3Has ? `<p><b>Result:</b> ${esc(p.observed || '-')}${p.classification ? ` · ${esc(p.classification)}` : ''}</p>${p.s3Note ? `<p>${esc(p.s3Note.slice(0, 400))}</p>` : ''}` : '<p class="small">No S3 result for this tool in this run.</p>';
   const eksHtml = eksHas ? `${a ? `<p><b>Pod:</b> ${esc(a.pod)} · ${esc(a.phase || '-')}${a.exitCode != null ? ` · exit code ${a.exitCode}` : ''}${a.reason ? ` · ${esc(a.reason.slice(0, 200))}` : ''}</p>${li(a.lines.slice(-3))}` : '<p class="small">No pod of this tool was seen.</p>'}${p.serviceLines.length ? `<p><b>Service lines:</b></p>${li(p.serviceLines.slice(-4).map((s) => s.text))}` : ''}${p.failureJson.length ? `<p><b>failure.json:</b></p>${li(p.failureJson.slice(0, 3))}` : ''}` : '<p class="small">Not captured: the live cluster capture of this run is missing, so there are no pod or service lines.</p>';
-  const codeHtmlBlock = code.refs.length ? code.refs.map((c) => `<div class="ev"><b>${esc(c.code)}</b> · ${esc(c.file)}:${c.line}<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:10.5px">${esc(c.snippet)}</pre></div>`).join('') + '<p class="small">Read-only lookup, platform code: ' + esc(code.version) + '. Secrets removed. It shows where the code is raised; it does not change the cause.</p>' : `<p class="small">${esc(CODE_WHY[code.status])}</p>`;
+  const codeHtmlBlock = code.refs.length ? code.refs.map((c) => `<div class="ev"><b>${esc(c.role || c.code)}</b> · ${esc(c.file)}:${c.line}${c.condition ? ` · only reached when: ${esc(c.condition)}` : ''}<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:10.5px">${esc(c.snippet)}</pre></div>`).join('') + '<p class="small">Read-only lookup, platform code: ' + esc(code.version) + '. Secrets removed. It shows where the code is raised; it does not change the cause.</p>' : `<p class="small">${esc(CODE_WHY[code.status])}</p>`;
   return `<h2>Evidence from the three sources</h2><div class="strip"><div><b>S3 result</b><span>${tick(s3Has)}</span></div><div><b>EKS logs</b><span>${tick(eksHas)}</span></div><div><b>Platform code</b><span>${tick(code.refs.length > 0)}</span></div></div><h3>1 · S3 result</h3>${s3Html}<h3>2 · EKS logs (pods and services)</h3>${eksHtml}<h3>3 · Platform code</h3>${codeHtmlBlock}<div class="ev"><b>Key line:</b> ${esc(r.evidence)}</div>`;
 }
 
@@ -145,6 +146,7 @@ ${strip(p)}
 <h2>What happened</h2><ul>${r.whatHappened.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
 <h2>Why</h2><p>${esc(r.why)}</p>
 ${threeSources(r, p)}
+${trailHtml(p.tool)}
 <h2>Impact</h2><p>${esc(r.impact)}</p>
 <h2>Who fixes it</h2><p>${esc(r.owner)}</p>
 <h2>What to do</h2><p>${esc(r.fix)}</p>
@@ -191,7 +193,8 @@ const pdfOpts = (footer: string) => ({ format: 'A4' as const, printBackground: t
  * platform-code evidence). The folder is rebuilt, so an earlier attempt leaves nothing behind. By default it writes one PDF per tool in Triggered / Not triggered; RCA_COMBINED=on also writes one overview PDF.
  * Green layout = triggered and fine, red layout = not triggered, failed, empty or not expected. Only the red ones are worded by the model.
  */
-export async function writeReports(branchDir: string, only?: string[], writer: ReportWriter = ruleWriter, opts: { failure?: string } = {}): Promise<ReportRow[]> {
+export async function writeReports(branchDir: string, only?: string[], writer: ReportWriter = ruleWriter, opts: { failure?: string; agent?: (p: FactPack) => Promise<unknown> } = {}): Promise<ReportRow[]> {
+  clearTrails();
   const list = only?.length ? only : allTools(branchDir);
   const out = path.join(branchDir, RCA_DIR);
   if (!list.length && !opts.failure) return []; // nothing to report on: the reports that are already there stay (an earlier good run is never wiped by an empty one)
@@ -208,10 +211,12 @@ export async function writeReports(branchDir: string, only?: string[], writer: R
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext();
-    const items: ReportItem[] = []; const meta: Array<{ tool: string; w: any; p: FactPack }> = [];
+    let agentRuns = 0; const items: ReportItem[] = []; const meta: Array<{ tool: string; w: any; p: FactPack }> = [];
     for (const tool of list) {
       const p = buildFactPack(branchDir, tool); const base = reportFromRules(p);
       const w = base.tone === 'green' ? { report: base, used: 'rules' as const } : await writer(p); // a healthy tool needs no wording help
+      // the code analysis (Thought -> Action -> Observation) for a few red tools that have something to look up; the same cause of many skipped tools is not analysed again and again
+      if (opts.agent && w.report.tone === 'red' && agentRuns < (Number(process.env.RCA_AGENT_MAX) || 4) && p.rule?.id !== 'skipped-by-platform-no-log' && (p.rule || p.failureJson.length || p.s3Note)) { agentRuns++; await opts.agent(p).catch(() => null); }
       items.push({ r: w.report, p }); meta.push({ tool, w, p });
     }
     const first = items[0].p; const combined = `RCA_Report_${safe(first.branch || path.basename(branchDir))}${first.runId ? `_${first.runId.slice(0, 8)}` : ''}.pdf`;

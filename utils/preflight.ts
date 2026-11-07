@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import './env'; // loads .env
-import { authFile, loginEmail, loginPassword, s3Root, TEST_ENV } from './env';
+import { authFile, loginEmail, loginPassword, s3Root, TEST_ENV, baseUrl } from './env';
+import { chromium } from 'playwright';
+import { codeRoot, resolveRef } from './rcaCode';
+import { eksIpReport } from './eksIpNotice';
 import { loadBuilds } from './builds';
 import { S3Reader } from './awsS3';
 import { hasAwsCredentials } from './s3Evidence';
@@ -17,7 +20,8 @@ import { dummyPrEnabled, dummyVia, tokenFor, findGh, realGh, ghRepoAccess, ghTok
  *   OK    ready
  *   WARN  the run works, one part is reduced or skipped (the line says which)
  *   FAIL  that part will not work; the line says the effect and how to fix it
- * PREFLIGHT=strict stops the run when any check is FAIL (default: only report). PREFLIGHT=off skips the check.
+ * GATE (default): the script opens the platform only when EVERY check is green (OK). Any WARN or FAIL stops it before the browser starts, with the lines that say what to fix.
+ * PREFLIGHT=warn only reports (the run carries on, the parts above are reduced or skipped). PREFLIGHT=off skips the check.
  */
 export type Level = 'OK' | 'WARN' | 'FAIL';
 export interface Check { name: string; level: Level; message: string; effect?: string; fix?: string }
@@ -88,10 +92,13 @@ function checkTeams(): Check {
 }
 
 async function checkEks(): Promise<Check> {
-  if (!eksAutoEnabled()) return { name: 'QA EKS cluster', level: 'WARN', message: 'EKS_AUTO is off', effect: 'no live log capture', fix: 'set EKS_AUTO=on in .env' };
+  if (!eksAutoEnabled()) return { name: 'QA EKS cluster', level: 'FAIL', message: 'EKS_AUTO is off', effect: 'no live log capture: the RCA Reports have no EKS evidence', fix: 'set EKS_AUTO=on in .env' };
   let note = ''; const ok = await eksClusterReady((m) => { note = m; });
-  return ok ? { name: 'QA EKS cluster', level: 'OK', message: 'reachable (live log capture will run)' }
-    : { name: 'QA EKS cluster', level: 'WARN', message: first(note) || 'not reachable from this PC', effect: 'no live pod logs for this run; the analysis falls back to the cluster service logs', fix: 'npm run eks:setup shows what is missing (sign-in, IP, VPN)' };
+  if (ok) return { name: 'QA EKS cluster', level: 'OK', message: 'reachable (live log capture will run)' };
+  // not reachable: is it this PC's IP that is not on the cluster allow-list? Then the IP is shown (and the request text), so it can be approved
+  const ipr = await eksIpReport().catch(() => null);
+  if (ipr && ipr.allowed === false) return { name: 'QA EKS cluster', level: 'FAIL', message: `this PC's public IP ${ipr.ip} is NOT on the cluster allow-list`, effect: 'no live pod logs: the RCA Reports have no EKS evidence', fix: `ask the cluster admin to add ${ipr.ip}/32 (npm run eks:ip shows the message and copies the IP)` };
+  return { name: 'QA EKS cluster', level: 'FAIL', message: first(note) || 'not reachable from this PC', effect: 'no live pod logs: the RCA Reports have no EKS evidence', fix: 'npm run eks:setup shows what is missing (sign-in, IP, VPN)' };
 }
 
 async function checkRcaModel(): Promise<Check> {
@@ -102,10 +109,45 @@ async function checkRcaModel(): Promise<Check> {
   return { name: 'RCA model', level: 'OK', message: `Ollama answers and "${s.name}" exists (the red RCA reports are worded by it)` };
 }
 
+/** the platform answers (before a browser is opened or anything is typed) */
+async function checkSite(): Promise<Check> {
+  try {
+    const r = await fetch(baseUrl, { redirect: 'manual', signal: AbortSignal.timeout(15_000) });
+    if (r.status < 500) return { name: 'Platform site', level: 'OK', message: `${baseUrl} answers (HTTP ${r.status})` };
+    return { name: 'Platform site', level: 'FAIL', message: `${baseUrl} answered HTTP ${r.status}`, effect: 'the run cannot start', fix: 'check that the platform is up, then start again' };
+  } catch (e) { return { name: 'Platform site', level: 'FAIL', message: `${baseUrl} does not answer (${first(String((e as Error).message))})`, effect: 'the run cannot start', fix: 'check the network or VPN and that the platform is up' }; }
+}
+function checkBrowser(): Check {
+  try { if (fs.existsSync(chromium.executablePath())) return { name: 'Browser', level: 'OK', message: 'Chromium for the run and the PDF reports is installed' }; } catch { /* below */ }
+  return { name: 'Browser', level: 'FAIL', message: 'Chromium is not installed', effect: 'no browser steps and no RCA PDFs', fix: 'run  npx playwright install chromium' };
+}
+function checkDisk(): Check {
+  try {
+    let p = path.resolve(process.env.RUN_DIR || path.join(__dirname, '..', 'results')); while (!fs.existsSync(p)) p = path.dirname(p);
+    const s = fs.statfsSync(p); const gb = (Number(s.bavail) * Number(s.bsize)) / 1e9;
+    return gb >= 3 ? { name: 'Disk space', level: 'OK', message: `${gb.toFixed(1)} GB free for the results` }
+      : { name: 'Disk space', level: 'FAIL', message: `only ${gb.toFixed(1)} GB free where the results are written`, effect: 'screenshots, S3 evidence and PDFs may fail to save', fix: 'free at least 3 GB' };
+  } catch (e) { return { name: 'Disk space', level: 'WARN', message: `could not be checked (${first(String((e as Error).message))})`, fix: 'check the free space of the results drive by hand' }; }
+}
+function checkCode(): Check {
+  if (/^(0|no|off|false)$/i.test((process.env.RCA_CODE || '').trim())) return { name: 'Platform code', level: 'WARN', message: 'RCA_CODE=off', effect: 'the RCA Reports have no platform-code evidence', fix: 'remove RCA_CODE=off from .env' };
+  const r = codeRoot();
+  if (!r) return { name: 'Platform code', level: 'FAIL', message: 'no local copy of the platform code', effect: 'the RCA Reports have no platform-code evidence', fix: 'run  npm run code:login  (or set RCA_CODE_DIR / RCA_CODE_REMOTE in .env); the start step clones it when it has access' };
+  return { name: 'Platform code', level: 'OK', message: resolveRef(r).label };
+}
+async function checkFallbackModel(): Promise<Check> {
+  const fb = (process.env.RCA_MODEL_FALLBACK ?? 'rca-writer').trim(); const main = (process.env.RCA_MODEL_NAME || 'rca-writer').trim();
+  if (!fb || fb === main) return { name: 'RCA fallback model', level: 'OK', message: 'no separate fallback model is set' };
+  const s = await rcaModelStatus(undefined, fb);
+  return s.present ? { name: 'RCA fallback model', level: 'OK', message: `"${fb}" exists (asked when the first model's answer is rejected)` }
+    : { name: 'RCA fallback model', level: 'FAIL', message: `the fallback model "${fb}" does not exist in Ollama`, effect: 'a rejected answer goes straight to the rule text', fix: 'npm run model:setup creates it, or set RCA_MODEL_FALLBACK to a model that exists' };
+}
+
 export async function runPreflight(): Promise<Check[]> {
   const safe = async (name: string, f: () => Promise<Check> | Check): Promise<Check> => { try { return await f(); } catch (e) { return { name, level: 'WARN', message: `check itself failed (${first(String((e as Error).message))})` }; } };
   return [await safe('Branch list', checkBuilds), await safe('Platform login', checkLogin), await safe('AWS S3 keys', checkAws), await safe('SharePoint sign-in', checkSharePoint),
-    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks), await safe('RCA model', checkRcaModel), await safe('Dummy commit', checkDummyCommit)];
+    await safe('Teams webhook', checkTeams), await safe('QA EKS cluster', checkEks), await safe('RCA model', checkRcaModel), await safe('RCA fallback model', checkFallbackModel), await safe('Platform code', async () => checkCode()),
+    await safe('Dummy commit', checkDummyCommit), await safe('Platform site', checkSite), await safe('Browser', async () => checkBrowser()), await safe('Disk space', async () => checkDisk())];
 }
 
 export function printPreflight(cs: Check[]): void {
@@ -114,22 +156,24 @@ export function printPreflight(cs: Check[]): void {
     console.log(`  ${c.level.padEnd(4)}  ${c.name.padEnd(18)} ${c.message}`);
     if (c.level !== 'OK') { if (c.effect) console.log(`        effect: ${c.effect}`); if (c.fix) console.log(`        fix:    ${c.fix}`); }
   }
-  const bad = cs.filter((c) => c.level !== 'OK');
-  const nFail = cs.filter((c) => c.level === 'FAIL').length; const strict = clean(process.env.PREFLIGHT).toLowerCase() === 'strict';
-  console.log(!bad.length ? '\n  all checks OK\n'
-    : strict && nFail ? `\n  ${nFail} FAIL, ${cs.length - nFail - cs.filter((c) => c.level === 'OK').length} WARN: PREFLIGHT=strict, the run is stopped. Fix the FAIL lines above, or set PREFLIGHT=off\n`
-    : `\n  ${nFail} FAIL, ${cs.filter((c) => c.level === 'WARN').length} WARN: the run carries on, and the parts above are reduced or skipped (PREFLIGHT=strict stops it on a FAIL)\n`);
+  const bad = cs.filter((c) => c.level !== 'OK'); const mode = modeOf();
+  console.log(!bad.length ? '\n  ALL CHECKS GREEN: the script may open the platform\n'
+    : mode === 'warn' ? `\n  ${bad.length} check(s) not green: PREFLIGHT=warn, the run carries on and the parts above are reduced or skipped\n`
+    : `\n  NOT READY: ${bad.length} check(s) are not green (${bad.map((c) => c.name).join(', ')}). The script will NOT open the platform. Fix the lines above and start again (PREFLIGHT=warn only reports).\n`);
 }
+
+/** gate | warn | off: the default is gate (every check green, else the platform is never opened) */
+export const modeOf = (): 'gate' | 'warn' | 'off' => { const m = clean(process.env.PREFLIGHT).toLowerCase(); return /^(off|no|0|false)$/.test(m) ? 'off' : /^(warn|report)$/.test(m) ? 'warn' : 'gate'; };
 
 /** called at the start of npm test; returns false when PREFLIGHT=strict and a check failed */
 export async function preflightAtStart(): Promise<boolean> {
-  const mode = clean(process.env.PREFLIGHT).toLowerCase();
-  if (/^(off|no|0|false)$/.test(mode)) return true;
+  const mode = modeOf(); if (mode === 'off') return true;
   const cs = await runPreflight(); printPreflight(cs);
-  try { const d = process.env.RUN_DIR; if (d) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'preflight.json'), JSON.stringify({ at: new Date().toISOString(), checks: cs }, null, 2)); } } catch { /* report only */ }
-  return !(mode === 'strict' && cs.some((c) => c.level === 'FAIL'));
+  try { const d = process.env.RUN_DIR; if (d) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'preflight.json'), JSON.stringify({ at: new Date().toISOString(), mode, checks: cs }, null, 2)); } } catch { /* the report is optional */ }
+  return mode === 'warn' || cs.every((c) => c.level === 'OK'); // gate: ONE check that is not green stops the run before the browser opens
 }
 
 if (require.main === module) {
-  runPreflight().then((cs) => { printPreflight(cs); process.exit(cs.some((c) => c.level === 'FAIL') ? 1 : 0); });
+  const gate = process.argv.includes('--gate');
+  runPreflight().then((cs) => { printPreflight(cs); process.exit(gate ? (modeOf() === 'gate' && cs.some((c) => c.level !== 'OK') ? 1 : 0) : cs.some((c) => c.level === 'FAIL') ? 1 : 0); });
 }

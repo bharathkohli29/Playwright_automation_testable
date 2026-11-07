@@ -13,11 +13,12 @@ import type { FactPack } from './rcaFacts';
  *   - small: at most 3 codes per report, 2 places per code, 8 lines per place; secrets, emails, addresses and ids in the lines are removed
  *   - audited: every lookup is appended to RCA_CODE_AUDIT (default results/rca-code-audit.jsonl): time, tool, code, file, line, size (never the code itself)
  */
-export interface CodeRef { code: string; file: string; line: number; snippet: string }
+/** role: what this place is (where the code is defined / used, or the runner of the tool); condition: the if / elif line right above the place (what has to be true to get there) */
+export interface CodeRef { code: string; file: string; line: number; snippet: string; role?: string; condition?: string }
 
 const CODE_RE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
 const IGNORE = /^(?:NOT_|NO_|RAN_BUT|EMPTY_|HTTP_|AWS_|TENANT_|CELL_ID|RUN_ID|TASK_ID|POD_|KUBE|PATH_|NODE_|LOG_|ERROR_CODE$)/;
-const SKIP_PATH = /(?:^|\/)(?:tests?|test_[^/]*|alembic|migrations|node_modules|\.git)(?:\/|$)|\.md$|\.lock$/i;
+const SKIP_PATH = /(?:^|\/)(?:tests?|test_[^/]*|alembic|migrations|node_modules|scripts|diagnostics|docs|certification|\.git)(?:\/|$)|\.md$|\.lock$/i;
 const MAX_CODES = 3, MAX_PLACES = 2, CONTEXT_BEFORE = 3, CONTEXT_AFTER = 4;
 
 /**
@@ -118,7 +119,10 @@ export function lookupCode(root: string, code: string, ref: string | null = null
     if (files.has(h.file)) continue; files.add(h.file);
     try {
       const text = ref ? String(spawnSync('git', ['-C', root, 'show', `${ref}:${h.file}`], { encoding: 'utf8', maxBuffer: 8_000_000 }).stdout || '') : fs.readFileSync(path.join(root, h.file), 'utf8'); const lines = text.split(NLC); const from = Math.max(0, h.line - 1 - CONTEXT_BEFORE); const to = Math.min(lines.length, h.line + CONTEXT_AFTER);
-      out.push({ code, file: h.file.replace(/\\/g, '/'), line: h.line, snippet: redact(lines.slice(from, to).map((x) => x.replace(/\s+$/, '')).join('\n')).text });
+      const hitLine = lines[h.line - 1] || ''; let condition = '';
+      for (let q = h.line - 2; q >= Math.max(0, h.line - 8); q--) { const m = /^\s*(?:if|elif|while|assert)\s+(.+?):?\s*$/.exec(lines[q] || ''); if (m) { condition = m[1].replace(/\s+/g, ' ').slice(0, 160); break; } }
+      const role = /^\s*[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*["']/.test(hitLine) ? 'where it is defined' : 'where it is used';
+      out.push({ code, file: h.file.replace(/\\/g, '/'), line: h.line, snippet: redact(lines.slice(from, to).map((x) => x.replace(/\s+$/, '')).join('\n')).text , role, condition });
     } catch { /* unreadable file: skip */ }
     if (out.length >= MAX_PLACES) break;
   }
@@ -126,6 +130,29 @@ export function lookupCode(root: string, code: string, ref: string | null = null
 }
 
 /** the places for one report; [] when the feature is off, the facts name no code, or the codebase does not mention it */
+/** the file of the analyzer that runs THIS tool (backend/.../analyzers/<language>/<tool>_runner.py): its header and the lines that decide not-applicable / empty / status, short and redacted */
+export function toolRunnerRefs(root: string, ref: string | null, tool: string): CodeRef[] {
+  const snake = tool.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const ls = spawnSync('git', ['-C', root, 'ls-tree', '-r', '--name-only', ref || 'HEAD'], { encoding: 'utf8', maxBuffer: 64_000_000, timeout: 30_000 });
+  const re = new RegExp(`/${snake}(_runner)?\\.(py|ts|cs|java)$`);
+  const file = String(ls.stdout || '').split(NLC).find((f) => /(^|\/)analyzers\//.test(f) && !SKIP_PATH.test(f) && re.test(f)); if (!file) return [];
+  const src = ref ? String(spawnSync('git', ['-C', root, 'show', `${ref}:${file}`], { encoding: 'utf8', maxBuffer: 8_000_000 }).stdout || '') : fs.readFileSync(path.join(root, file), 'utf8'); const lines = src.split(NLC);
+  const head = lines.slice(0, 40).filter((l) => /^\s*(#|"""|'''|\/\/)/.test(l) || (l.trim().length > 30 && /^[A-Za-z]/.test(l.trim()) && !/^(import|from|const|let|def|class)\b/.test(l.trim()))).slice(0, 5);
+  const at = lines.findIndex((l, i) => i > 2 && /not_applicable|NOT_APPLICABLE|returncode|empty|no such|status\s*=/.test(l));
+  const win = at >= 0 ? lines.slice(Math.max(0, at - 2), Math.min(lines.length, at + 5)) : [];
+  const snippet = redact([...head, ...(win.length ? ['...', ...win] : [])].map((x) => x.trimEnd()).join(NLC)).text; if (!snippet.trim()) return [];
+  return [{ code: tool, file, line: at >= 0 ? at + 1 : 1, snippet, role: 'the runner of this tool', condition: '' }];
+}
+
+/** one plain sentence that says what the code shows (built from the places, never invented): used in the training answers so the model learns to cite the code */
+export function codeSentence(refs: CodeRef[]): string {
+  const c = refs.find((r) => r.condition && r.role !== 'the runner of this tool'); const r = refs.find((x) => x.role === 'the runner of this tool');
+  const parts: string[] = [];
+  if (c) parts.push(`In the platform code (${c.file}:${c.line}) ${c.code} is used when ${c.condition}.`);
+  if (r) parts.push(`The runner of this tool is ${r.file}.`);
+  return parts.join(' ');
+}
+
 export function codeEvidence(p: FactPack): CodeRef[] {
   const root = codeRoot(); if (!root) return [];
   const refs: CodeRef[] = [];
@@ -134,6 +161,8 @@ export function codeEvidence(p: FactPack): CodeRef[] {
     const found = lookupCode(root, code, resolveRef(root).ref); refs.push(...found);
     audit({ tool: p.tool, code, version: resolveRef(root).label, places: found.map((f) => `${f.file}:${f.line}`), bytes: found.reduce((n, f) => n + f.snippet.length, 0) });
   }
+  // a tool that did not run, failed or was empty: how its own runner treats its input is part of the answer
+  if (!p.healthy) { const rr = toolRunnerRefs(root, resolveRef(root).ref, p.tool); if (rr.length) { refs.push(...rr); audit({ tool: p.tool, code: '(runner)', places: rr.map((f) => `${f.file}:${f.line}`), bytes: rr.reduce((n, f) => n + f.snippet.length, 0) }); } }
   return refs;
 }
 
@@ -141,7 +170,7 @@ export type CodeStatus = 'found' | 'off' | 'no-code-in-facts' | 'not-in-codebase
 export function codeSection(p: FactPack): { status: CodeStatus; refs: CodeRef[]; version: string } {
   const root = codeRoot(); if (!root) return { status: 'off', refs: [], version: '' };
   const version = resolveRef(root).label;
-  if (!codesOf(p).length) return { status: 'no-code-in-facts', refs: [], version };
+  if (!codesOf(p).length && p.healthy) return { status: 'no-code-in-facts', refs: [], version };
   const refs = codeEvidence(p); return { status: refs.length ? 'found' : 'not-in-codebase', refs, version };
 }
 

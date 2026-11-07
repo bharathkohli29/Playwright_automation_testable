@@ -95,7 +95,7 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+
 export function promptFor(p: FactPack, base: RcaReport): { system: string; facts: string; user: string; ver: RegExp | null } {
   // the third source: where the code of the platform raises the error code of this failure (read-only look-up, short, redacted; empty when the feature is off)
   const code = codeSection(p);
-  const facts = factsText(p, base) + (code.refs.length ? `${String.fromCharCode(10)}CODE EVIDENCE (read-only look-up in the platform code, short and redacted):${String.fromCharCode(10)}${code.refs.map((c) => `- ${c.file}:${c.line}${String.fromCharCode(10)}${c.snippet}`).join(String.fromCharCode(10))}` : '');
+  const facts = factsText(p, base) + (code.refs.length ? `${String.fromCharCode(10)}CODE EVIDENCE (read-only look-up in the platform code, short and redacted):${String.fromCharCode(10)}${code.refs.map((c) => `- ${c.file}:${c.line}${c.role ? ` (${c.role})` : ''}${c.condition ? ` [only reached when: ${c.condition}]` : ''}${String.fromCharCode(10)}${c.snippet}`).join(String.fromCharCode(10))}` : '');
   const ver = p.version ? new RegExp("(?<![\\w.])" + esc(p.version) + "(?![\\w])", 'g') : null;
   const shown = ver ? `${facts.replace(ver, '<V>')}
 (Write <V> exactly where the version belongs; never write a number for it.)` : `${facts}
@@ -103,6 +103,14 @@ export function promptFor(p: FactPack, base: RcaReport): { system: string; facts
   return { system: SYSTEM, facts, user: `${shown}
 
 Write the report for ${p.tool} now.`, ver };
+}
+
+/** words that state how common or harmless something is ("this is normal", "usually", "safe to ignore"): a root-cause report may only say what the facts say, so each of them must be in the facts */
+const CLAIM_WORDS = /\b(normal|normally|usually|typically|probably|commonly|generally|often|harmless|safe to ignore|nothing to worry|not a problem)\b/gi;
+export function unsupportedClaims(answer: string, facts: string): string[] {
+  const found = [...new Set((answer.match(CLAIM_WORDS) || []).map((x) => x.toLowerCase()))];
+  const f = facts.toLowerCase().split(/[^a-z]+/).join(' ');
+  return found.filter((w) => !` ${f} `.includes(` ${w} `));
 }
 
 export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promise<WriterResult> {
@@ -127,6 +135,8 @@ export async function writeReport(p: FactPack, opts: WriterOptions = {}): Promis
     const allowed = `${facts}\n${base.why}\n${base.fix}\n${base.impact}\n${base.oneLine}\n${base.whatHappened.join('\n')}`;
     const bad = ungrounded(`${r.oneLine} ${what.join(' ')} ${r.why} ${r.impact} ${r.fix}`, allowed);
     if (bad.length) throw new Error(`the answer contains ${bad.length} thing(s) not in the facts: ${bad.slice(0, 4).join(', ')}`);
+    const claims = unsupportedClaims(`${r.oneLine} ${what.join(' ')} ${r.why} ${r.impact} ${r.fix}`, allowed);
+    if (claims.length) throw new Error(`the answer makes a claim the facts do not make (${claims.slice(0, 3).join(', ')})`);
     const report: RcaReport = { ...base, ...r, whatHappened: what, source: 'model', confidence: `${base.confidence} Wording by the local model ${model}; the evidence line, owner and facts come from the logs and rules.` };
     return { report, used: 'model', model, ms: Date.now() - t0 };
   } catch (e) { errs.push(`${models.length > 1 ? `${model}: ` : ''}${e instanceof Error ? e.message : e}`); }

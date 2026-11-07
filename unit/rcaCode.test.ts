@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { codesOf, lookupCode, codeEvidence, resolveRef, gitAuthEnv, scrub, gitEnv } from '../utils/rcaCode';
+import { codesOf, lookupCode, codeEvidence, resolveRef, gitAuthEnv, scrub, gitEnv, toolRunnerRefs, codeSentence } from '../utils/rcaCode';
 import { buildFactPack } from '../utils/rcaFacts';
 import { makeBranch } from './fixtures';
 
@@ -27,7 +27,7 @@ test('lookupCode finds where a code is raised, skips tests, removes secrets, and
 test('codeEvidence is off without RCA_CODE_DIR, and audits (without the code itself) when on', () => {
   const b = makeBranch(); const p = buildFactPack(b, 'cosmic-ray'); const old = process.env.RCA_CODE_DIR; const oldA = process.env.RCA_CODE_AUDIT;
   try {
-    delete process.env.RCA_CODE_DIR; assert.deepEqual(codeEvidence(p), []);
+    process.env.RCA_CODE = 'off'; delete process.env.RCA_CODE_DIR; assert.deepEqual(codeEvidence(p), []); delete process.env.RCA_CODE;
     const d = repo(); const audit = path.join(os.tmpdir(), `audit-${Date.now()}.jsonl`); process.env.RCA_CODE_DIR = d; process.env.RCA_CODE_AUDIT = audit;
     const fake = { ...p, observed: 'FAILED', failureJson: ['failure.json: reason WAVE_IDENTITY_MISMATCH'], serviceLines: [], decisive: null } as typeof p;
     assert.deepEqual(codesOf(fake), ['WAVE_IDENTITY_MISMATCH']);
@@ -62,4 +62,17 @@ test('gitEnv removes the tokens of other features, so git uses RCA_CODE_TOKEN or
   const keep = { gh: process.env.GH_TOKEN, gt: process.env.GITHUB_TOKEN };
   try { process.env.GH_TOKEN = 'ghp_other_feature'; process.env.GITHUB_TOKEN = 'ghp_other_feature2'; const e = gitEnv(); assert.equal(e.GH_TOKEN, undefined); assert.equal(e.GITHUB_TOKEN, undefined); assert.equal(e.GIT_TERMINAL_PROMPT, '0'); }
   finally { if (keep.gh === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = keep.gh; if (keep.gt === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = keep.gt; }
+});
+
+test('lookupCode labels each place and shows the condition above it; toolRunnerRefs finds the analyzer of a tool', () => {
+  const d = repo(); const g = (...a: string[]) => spawnSync('git', ['-C', d, ...a], { encoding: 'utf8' }); const NL = String.fromCharCode(10);
+  fs.mkdirSync(path.join(d, 'backend', 'w', 'analyzers', 'python'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'backend', 'w', 'analyzers', 'python', 'foo_tool_runner.py'), ['# Runs foo-tool and writes its report.', 'import json', '', 'def run(x):', '    out = x.stdout', '    if not out:', '        return {"status": "empty"}', '    return json.loads(out)', ''].join(NL));
+  fs.writeFileSync(path.join(d, 'svc', 'codes.py'), 'WAVE_IDENTITY_MISMATCH = "WAVE_IDENTITY_MISMATCH"' + NL);
+  g('add', '-A'); g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'more');
+  const r = lookupCode(d, 'WAVE_IDENTITY_MISMATCH'); const used = r.find((x) => x.file === 'svc/plan.py')!; const def = r.find((x) => x.file === 'svc/codes.py')!;
+  assert.equal(used.role, 'where it is used'); assert.equal(used.condition, 'x.wave is None'); assert.equal(def.role, 'where it is defined');
+  const rr = toolRunnerRefs(d, null, 'foo-tool'); assert.equal(rr.length, 1); assert.equal(rr[0].role, 'the runner of this tool'); assert.match(rr[0].file, /foo_tool_runner[.]py$/); assert.match(rr[0].snippet, /Runs foo-tool/); assert.match(rr[0].snippet, /status/);
+  assert.deepEqual(toolRunnerRefs(d, null, 'no-such-tool'), []);
+  assert.match(codeSentence([used]), /svc\/plan[.]py:4[)] WAVE_IDENTITY_MISMATCH is used when x[.]wave is None/);
 });

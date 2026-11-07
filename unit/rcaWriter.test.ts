@@ -6,7 +6,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { buildFactPack } from '../utils/rcaFacts';
-import { writeReport, ungrounded, factsText, rcaModelStatus } from '../utils/rcaWriter';
+import { writeReport, ungrounded, factsText, rcaModelStatus, unsupportedClaims } from '../utils/rcaWriter';
 import { reportFromRules } from '../utils/rcaReport';
 
 function branch() {
@@ -84,5 +84,20 @@ test('the trained model answers first; a rejected answer goes to the stock model
     assert.equal(w.used, 'rules'); assert.match(w.note || '', /trained-x: .*stock-x: /); assert.deepEqual(f.asked, ['trained-x', 'stock-x']);
     process.env.RCA_MODEL_FALLBACK = ''; f = await fakeByModel({ 'trained-x': 'nonsense', 'stock-x': GOOD }); w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
     assert.equal(w.used, 'rules'); assert.deepEqual(f.asked, ['trained-x']); // an empty fallback turns the safety net off
+  } finally { if (keep === undefined) delete process.env.RCA_MODEL_FALLBACK; else process.env.RCA_MODEL_FALLBACK = keep; }
+});
+
+test('unsupportedClaims: "this is normal" style words must be in the facts; the same word is fine when the facts say it', () => {
+  assert.deepEqual(unsupportedClaims('The cell had no CPU. This is normal and usually harmless.', 'cpd was rejected for CELL_CPU_CAPACITY'), ['normal', 'usually', 'harmless']);
+  assert.deepEqual(unsupportedClaims('This is normal for the cell.', 'KNOWN CAUSE: the rejection is normal when the cell is busy'), []);
+  assert.deepEqual(unsupportedClaims('cpd was rejected for CPU capacity.', 'cpd was rejected for CELL_CPU_CAPACITY'), []);
+});
+
+test('an answer that claims it is normal is rejected, then the stock model is asked', async () => {
+  const d = branch(); const keep = process.env.RCA_MODEL_FALLBACK; process.env.RCA_MODEL_FALLBACK = 'stock-x';
+  try {
+    const p = buildFactPack(d, 'cosmic-ray'); const j = JSON.parse(GOOD); j.why = `${j.why} This is normal and usually harmless.`;
+    const f = await fakeByModel({ 'trained-x': JSON.stringify(j), 'stock-x': GOOD }); const w = await writeReport(p, { host: f.url, model: 'trained-x' }); f.close();
+    assert.equal(w.used, 'model'); assert.equal(w.model, 'stock-x'); assert.deepEqual(f.asked, ['trained-x', 'stock-x']);
   } finally { if (keep === undefined) delete process.env.RCA_MODEL_FALLBACK; else process.env.RCA_MODEL_FALLBACK = keep; }
 });

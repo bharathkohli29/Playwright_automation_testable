@@ -18,6 +18,7 @@ import { recordPostStep, refreshTimingWorkbook } from './timings';
 import { writeReports, RCA_DIR } from './rcaReport';
 import { prepareCode } from './rcaCode';
 import { analyseScriptFailure } from './rcaScriptFailure';
+import { agentEnabled, agentForRun } from './rcaAgent';
 import { rcaModelEnabled, writeReport } from './rcaWriter';
 
 /**
@@ -116,7 +117,7 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   await step('rcareport', async () => {
     if (noData) return 'skipped';
     try { prepareCode((m) => console.log(`  ${m}`)); } catch { /* the code section is optional */ }
-    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined, { failure: job.failure });
+    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined, { failure: job.failure, agent: agentEnabled() ? agentForRun : undefined });
     if (!rows.length) return 'skipped';
     const m = rows.filter((r) => r.source === 'model').length; const red = rows.filter((r) => r.tone === 'red'); const nt = rows.filter((r) => !r.triggered).length; const slow = rows.find((r) => r.note);
     console.log(`  RCA Report: ${rows.length} tool report(s): ${rows.length - red.length} green, ${red.length} red (${nt} not triggered); ${m} of the red worded by the model${slow ? ` (${red.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);

@@ -4,6 +4,9 @@ import { preflightAtStart } from '../utils/preflight';
 import { authFile } from '../utils/env';
 import { loginToPlatform } from '../utils/platformLogin';
 
+// the setup steps run in order and stop at the first failure: a pre-flight that is not green means the platform is never opened (no login, no branch)
+setup.describe.configure({ mode: 'serial' });
+
 // LOGIN_MODE=okta in .env (or $env:LOGIN_MODE="okta") signs in through "Sign in with SSO" → Okta. Default (normal / not set): the usual email + password login, unchanged.
 // The Okta route uses OKTA_EMAIL / OKTA_PASSWORD when set, otherwise the same TESTABLE_EMAIL / TESTABLE_PASSWORD as the normal login.
 const okta = /^okta$/i.test((process.env.LOGIN_MODE || '').trim());
@@ -20,7 +23,7 @@ setup('QA EKS sign-in', async () => {
 // Only reports; PREFLIGHT=strict stops the run on a FAIL, PREFLIGHT=off skips it. Same check by hand: npm run preflight
 setup('pre-flight check', async () => {
   setup.setTimeout(3 * 60_000);
-  expect(await preflightAtStart(), 'PREFLIGHT=strict: fix the FAIL lines above (or set PREFLIGHT=off)').toBe(true);
+  expect(await preflightAtStart(), 'NOT READY: a check is not green (see the lines above). The platform is not opened until every check is green (PREFLIGHT=warn only reports).').toBe(true);
 });
 
 setup('log in', async ({ page }) => {
