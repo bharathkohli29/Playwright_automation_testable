@@ -1,6 +1,7 @@
 import { codeSection } from './rcaCode';
 import { analyseScriptFailure, scriptFailureHtml } from './rcaScriptFailure';
 import { trailHtml, clearTrails, issueName } from './rcaTrail';
+import { VISUAL_CSS, badge, brief, summaryCards } from './rcaVisual';
 import { folderShots } from './rcaScreenshot';
 import type { CodeStatus } from './rcaCode';
 import * as fs from 'fs';
@@ -143,6 +144,8 @@ function reportBody(r: RcaReport, p: FactPack): string {
   return `<section class="tool" id="${esc(safe(p.tool))}">
 <div class="banner" style="background:${tone.bar}"><h1>ROOT CAUSE ANALYSIS: ${esc(p.tool)}</h1><div>${esc([tone.label, [p.language, p.version].filter(Boolean).join(' '), p.branch && `branch ${p.branch}`, p.runId && `run ${p.runId.slice(0, 8)}`].filter(Boolean).join(' · '))}</div></div>
 <div class="one" style="border:2px solid ${tone.edge};background:${tone.soft}">${esc(r.oneLine)}</div>
+<div class="badges">${badge(r.state, r.tone === 'green' ? 'ok' : 'bad')}${badge(`Owner: ${brief(r.owner, 70)}`, 'info')}${badge(r.source === 'model' ? 'Worded by the local model' : 'Written by rules', 'muted')}</div>
+${summaryCards([{ label: 'What happened', icon: '1', kind: r.tone === 'green' ? 'ok' : 'bad', text: brief(r.whatHappened[0] || r.oneLine, 200) }, { label: 'Why', icon: '2', kind: r.tone === 'green' ? 'ok' : 'warn', text: brief(r.why, 230) }, { label: 'What to do', icon: '3', kind: 'ok', text: brief(r.fix, 230) }])}
 ${strip(p)}
 <h2>What happened</h2><ul>${r.whatHappened.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
 <h2>Why</h2><p>${esc(r.why)}</p>
@@ -160,7 +163,7 @@ ${profileHtml(p)}
 
 /** one tool: a complete HTML document (used for the optional one-PDF-per-tool output and by the tests) */
 export function reportHtml(r: RcaReport, p: FactPack): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${reportBody(r, p)}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}${VISUAL_CSS}</style></head><body>${reportBody(r, p)}</body></html>`;
 }
 
 export interface ReportItem { r: RcaReport; p: FactPack }
@@ -173,7 +176,7 @@ export function combinedHtml(items: ReportItem[], lead = ''): string {
 <div class="strip" style="margin-top:12px"><div><b>Tools</b><span>${items.length}</span></div><div><b>Fine</b><span>${green}</span></div><div><b>Need attention</b><span>${red.length}</span></div><div><b>Not triggered</b><span>${notTrig}</span></div></div>
 <h2>Evidence used for every tool</h2><p>S3 result of the run, EKS logs (pods and services) of the run, and the platform code where an error code is raised. Each tool section shows which of the three were available.</p>
 <h2>All tools</h2><table class="sumtab"><tr><th>Tool</th><th>State</th><th>What happened</th><th>Who fixes it</th></tr>${order.map(row).join('')}</table></section>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${cover}${lead}${order.map((i) => reportBody(i.r, i.p)).join('')}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}${VISUAL_CSS}</style></head><body>${cover}${lead}${order.map((i) => reportBody(i.r, i.p)).join('')}</body></html>`;
 }
 
 /** a writer turns one fact pack into a report; the default is the rule writer, rcaWriter.writeReport is the model writer (it falls back to the rules itself) */
@@ -186,7 +189,7 @@ export interface ReportRow { tool: string; kind: string; tone: string; state: st
 const splitOn = () => !/^(0|no|off|false)$/i.test((process.env.RCA_SPLIT || '').trim());
 const combinedOn = () => /^(1|yes|on|true)$/i.test((process.env.RCA_COMBINED || '').trim()) || !splitOn();
 /** a complete HTML document around ready-made sections (for the script-failure page on its own) */
-export const docOf = (body: string): string => `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>${body}</body></html>`;
+export const docOf = (body: string): string => `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}${VISUAL_CSS}</style></head><body>${body}</body></html>`;
 const pdfOpts = (footer: string) => ({ format: 'A4' as const, printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">${footer} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` });
 
 /**

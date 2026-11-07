@@ -85,7 +85,7 @@ test('green layout for a triggered tool that is fine, red for the others; not tr
   assert.equal(green.triggered, true); assert.equal(green.healthy, true); assert.equal(red.triggered, false); assert.equal(red.healthy, false);
   const g = reportFromRules(green); const r = reportFromRules(red);
   assert.equal(g.tone, 'green'); assert.equal(g.state, 'TRIGGERED · RESULT OK'); assert.match(g.evidence, /cc for 14 file/); assert.equal(r.tone, 'red'); assert.equal(r.state, 'NOT TRIGGERED');
-  assert.match(reportHtml(g, green), /#047857/); assert.doesNotMatch(reportHtml(g, green), /#b91c1c/); assert.match(reportHtml(r, red), /#b91c1c/); assert.match(reportHtml(r, red), /NOT TRIGGERED/);
+  assert.match(reportHtml(g, green), /style="background:#047857"/); assert.doesNotMatch(reportHtml(g, green), /style="background:#b91c1c"/); assert.match(reportHtml(r, red), /style="background:#b91c1c"/); assert.match(reportHtml(r, red), /NOT TRIGGERED/);
   process.env.RCA_SPLIT = 'on'; const asked: string[] = []; let rows: Awaited<ReturnType<typeof writeReports>>; try { rows = await writeReports(d, undefined, async (p) => { asked.push(p.tool); return { report: reportFromRules(p), used: 'rules' }; }); } finally { delete process.env.RCA_SPLIT; }
   assert.deepEqual(asked, ['flake8']); // the green report is written from the facts, the writer is only asked about the red one
   assert.deepEqual(rows.map((x) => x.file).sort(), ['Not triggered/RCA_flake8.pdf', 'Triggered/RCA_radon.pdf']);

@@ -12,6 +12,10 @@ import type { Trail } from './rcaTrail';
 import { docOf } from './rcaReport';
 import { announceIfBlocked } from './eksIpNotice';
 import { screenshotHtml, folderShots } from './rcaScreenshot';
+import { badge, brief, callout, chainHtml, summaryCards, steps } from './rcaVisual';
+import type { Kind } from './rcaVisual';
+import type { ScriptFailure } from './rcaScriptFailure';
+import { matchIssueRule, applyRule } from './issueRules';
 
 /**
  * RCA OF ANY PLATFORM PROBLEM, named after the problem:   npm run rca:issue -- "<the problem in your words>" [--folder <branch folder>] [--run <run id>] [--since 3h] [--out <dir>] [--share]
@@ -88,8 +92,11 @@ const SYSTEM_ISSUE = [
   'Every reply is ONE JSON object and nothing else: {"thought":"what you want to know and why","action":"search|read|runner|finish","input":"..."}.',
   'search: input is a text or an error code to find in the code (returns file:line and the line). read: input is file:line from a search result (about 20 lines). runner: input is a tool name (the file of its analyzer).',
   'Look for: the error code or message that appears in the cluster lines, where it is raised, the condition that guards it, and what keeps that condition true (a queue, a capacity count, a missing record).',
-  'When you know enough, or the observations do not help, reply with action finish and input a JSON object: {"cause":"one or two plain sentences","proof":"Proven | Inferred | Unknown","evidence":"file:line that you saw in an Observation","owner":"Platform or Repository or Unknown","next":"what would confirm it"}.',
+  'When you know enough, or the observations do not help, reply with action finish and input a JSON object: {"mechanism":"how the code produces the symptom, in one sentence","cause":"WHY that condition was true: the upstream data or state that fed it (an API call, a database query, a worker). Never repeat the symptom.","proof":"Proven | Inferred | Unknown (for the cause)","evidence":"file:line that you saw in an Observation","owner":"Platform or Repository or Unknown","next":"the specific log or query that would confirm the cause","fix":"HOW TO SOLVE IT for good: the concrete change and who makes it (name the file or setting from the Observations when they show it)","workaround":"what can be done right now to get unblocked","verify":"how to see that it is solved","candidates":[{"cause":"another possible cause","confirm":"what would confirm it"}]}.',
+  'The report must say how to solve the problem. Base the fix on the cause you found; when the cause is not established, give the fix for the most likely candidate and say which one it is. A fix names only files, settings and values that the facts or the Observations showed.',
+  'Follow the data upstream until you reach where it enters: the frontend gets it from an API call, the API gets it from a database or a worker. If the observations never reach that point, write cause as "Not established", proof Unknown, and give up to 3 candidates with the log or query that would confirm each.',
   'If the facts say the cluster was NOT READ, that is only a limit of this report: it is never the cause of the problem. Then work from the problem text and the platform code and give the proof level Inferred or Unknown.',
+  'After a read, look where the variable of the condition is worked out: search for its name (for example  const listed ) and read that place. Do not read the same place twice.',
   'Use ONLY what the facts and the Observations show. Never invent a file, a line, an option or a number. Do not say that something is normal, usual or harmless. If they do not show the cause, the proof is Unknown.',
 ].join(NLC);
 
@@ -99,21 +106,52 @@ const ul = (xs: string[], none: string) => (xs.length ? `<ul>${xs.map((x) => `<l
 
 export function issueHtml(issue: string, ev: Evidence, extra: string[], code: CodeRef[], trail: Trail | null, version: string, shots: string[] = []): string {
   const name = issueName(issue).split('_').join(' '); const c = trail?.conclusion;
-  const tick = (ok: boolean) => (ok ? '&#10004;' : '&#10008;');
+  const proof = c?.proof || 'Unknown'; const pk: Kind = proof === 'Proven' ? 'ok' : proof === 'Inferred' ? 'warn' : 'muted';
+  const notEst = !c || /^not established/i.test(c.cause);
+  const what = brief(issue.replace(/\s+/g, ' '), 210);
+  const why = !c ? 'The cause could not be established from the evidence below.' : notEst ? `Not confirmed yet. ${c.mechanism ? brief(c.mechanism, 150) : ''} ${c.candidates?.length ? `${c.candidates.length} possible causes are listed below, each with how to check it.` : ''}`.trim() : brief(c.cause, 230);
+  const fixText = c?.fix ? brief(c.fix, 240) : 'No fix can be stated from the evidence yet.';
+  const chain = c?.chain?.length ? c.chain : [`Problem: ${brief(issue, 80)}`, c?.mechanism ? `In the code: ${brief(c.mechanism, 100)}` : '', notEst ? 'Root cause not established yet' : `Root cause: ${brief(c!.cause, 100)}`];
   const codeBlock = code.length ? code.map((r) => `<div class="ev"><b>${esc(r.role || r.code)}</b> · ${esc(r.file)}:${r.line}${r.condition ? ` · only reached when: ${esc(r.condition)}` : ''}<pre style="margin:6px 0 0;white-space:pre-wrap;font-size:10.5px">${esc(r.snippet)}</pre></div>`).join('') + `<p class="small">Read-only look-up, platform code: ${esc(version)}. Secrets removed.</p>` : '<p class="small">No place of the platform code matched the codes or texts of this problem (or no local copy of the code is set).</p>';
+  const causes = c?.candidates?.length ? `<table class="sm"><tr><th style="width:4%">#</th><th>Possible cause</th><th style="width:38%">How to check it</th><th style="width:10%">Status</th></tr>${c.candidates.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.cause)}</td><td>${esc(x.confirm)}</td><td><span class="pill">to check</span></td></tr>`).join('')}</table>` : '';
+  const fixSteps = c?.fix ? `<ol>${steps(c.fix).map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : '';
   const body = `<section class="tool"><div class="banner" style="background:#1f3a5f"><h1>ROOT CAUSE ANALYSIS: ${esc(name)}</h1><div>${esc(new Date().toISOString().slice(0, 16).replace('T', ' '))} UTC · QA platform · cluster, platform code and local model</div></div>
-<div class="one" style="border:2px solid #60a5fa;background:#eff6ff">${esc(c ? c.cause : 'The cause could not be established from the evidence below.')}</div>
-<div class="strip"><div><b>EKS cluster</b><span>${tick(ev.reached)}</span></div><div><b>Platform code</b><span>${tick(code.length > 0)}</span></div><div><b>Proof level</b><span>${esc(c?.proof || 'Unknown')}</span></div></div>
-<h2>The problem, as reported</h2><p>${esc(issue)}</p>${screenshotHtml(shots)}
-<h2>Evidence from the three sources</h2>
-<h3>1 · The run and the earlier capture</h3>${ul(extra, 'No run folder was given.')}
-<h3>2 · EKS cluster (read only, now)</h3>${ev.reached ? `${ul(ev.pods, 'no pod information')}<p><b>Recent Warning events</b></p>${ul(ev.events, 'no Warning event in the QA cell')}<p><b>Log lines of the platform services that match the problem</b> (count, time, message)</p>${ul(ev.logs, ev.note || 'no matching line')}` : `<p class="small">${esc(ev.note)}</p>`}
-<h3>3 · Platform code</h3>${codeBlock}
-${trail ? trailHtml(trail.tool) : ''}
-<h2>Who fixes it</h2><p>${esc(c?.owner || 'Undecided: the evidence does not show it.')}</p>
-<h2>What would confirm it</h2><p>${esc(c?.next || 'Capture the problem live (the cluster logs of the moment it happens) and run this report again.')}</p>
+<div class="badges">${badge(`Proof: ${proof}`, pk)}${badge(`Owner: ${brief(c?.owner || 'undecided', 60)}`, 'info')}${badge(ev.reached ? 'Cluster read' : 'Cluster NOT read', ev.reached ? 'ok' : 'bad')}${badge(code.length ? 'Platform code read' : 'No platform code', code.length ? 'ok' : 'muted')}${c?.rule ? badge('Known pattern', 'info') : ''}</div>
+${summaryCards([{ label: 'What happened', icon: '1', kind: 'bad', text: what }, { label: 'Why it happened', icon: '2', kind: notEst ? 'warn' : 'info', text: why }, { label: 'How to fix it', icon: '3', kind: 'ok', text: fixText }])}
+${ev.reached ? '' : callout('Heads up: the cluster could not be read', `This PC could not reach the QA cluster${ev.note ? ` (${esc(ev.note.slice(0, 140))})` : ''}, so the cause below is checked against the platform code only. The cluster logs would confirm which cause is the real one.`, 'warn')}
+<div class="sec">1 · How the problem comes about</div>${chainHtml(chain, notEst ? 'warn' : 'ok')}${c?.mechanism ? `<p><b>In the code (proven):</b> ${esc(c.mechanism)}</p>` : ''}
+<div class="sec light">The problem, as reported</div><p>${esc(issue)}</p>${screenshotHtml(shots)}
+${causes ? `<div class="sec">2 · Possible causes, and how to check each</div>${causes}` : ''}
+<div class="sec">${causes ? '3' : '2'} · How to solve it</div>
+${c?.fix ? callout('Permanent fix', fixSteps, 'ok') : ''}${c?.workaround ? callout('Do this now (workaround)', esc(c.workaround), 'warn') : ''}${c?.verify ? callout('How to check that it is solved', esc(c.verify), 'info') : ''}${c ? '' : '<p class="small">No fix can be stated until the cause is established.</p>'}
+<p><b>Who fixes it:</b> ${esc(c?.owner || 'Undecided: the evidence does not show it.')}</p>
+<p><b>What would confirm it:</b> ${esc(c?.next || 'Capture the problem live (the cluster logs of the moment it happens) and run this report again.')}</p>
+${c?.rule ? `<p class="small"><b>Known pattern:</b> ${esc(c.rule)}. Written from the platform code; the lead confirms it by keeping or changing it.</p>` : ''}
+<div class="appx">Evidence and analysis (details)</div>
+<div class="strip"><div><b>EKS cluster</b><span>${ev.reached ? '&#10004;' : '&#10008;'}</span></div><div><b>Platform code</b><span>${code.length ? '&#10004;' : '&#10008;'}</span></div><div><b>Proof level</b><span>${esc(proof)}</span></div></div>
+<h3>The run and the earlier capture</h3>${ul(extra, 'No run folder was given.')}
+<h3>EKS cluster (read only, now)</h3>${ev.reached ? `${ul(ev.pods, 'no pod information')}<p><b>Recent Warning events</b></p>${ul(ev.events, 'no Warning event in the QA cell')}<p><b>Log lines of the platform services that match the problem</b> (count, time, message)</p>${ul(ev.logs, ev.note || 'no matching line')}` : `<p class="small">${esc(ev.note)}</p>`}
+<h3>Platform code</h3>${codeBlock}
+${trail ? trailHtml(trail.tool, true) : ''}
 <div class="foot">Generated from the cluster and the platform code by the local model. Nothing was changed in the cluster or the code. A draft for people to check.</div></section>`;
   return docOf(body);
+}
+
+/** the plain-language explanation for the Teams card: what happened, why, how sure we are, who acts, what to do next, and where the report is */
+export function explainLines(sf: ScriptFailure, trail: Trail | null, pdfName: string): string[] {
+  const c = trail?.conclusion;
+  return [
+    `What happened: ${sf.symptom}`,
+    ...(c?.mechanism ? [`Why the page blocks: ${c.mechanism}`] : []),
+    `Why that was the case: ${c ? c.cause : sf.likely}`,
+    ...(c?.candidates?.length ? [`Possible causes to check: ${c.candidates.map((x) => `${x.cause} (confirm: ${x.confirm})`).join('; ')}`] : []),
+    `How sure we are: ${c ? c.proof : sf.proof}`,
+    `Who should act: ${c?.owner || sf.owner}`,
+    ...(c?.fix ? [`How to solve it: ${c.fix}`] : []),
+    ...(c?.workaround ? [`Right now: ${c.workaround}`] : []),
+    `What to check first: ${c?.next || sf.check[0] || 'see the full report'}`,
+    `Full report: ${pdfName} (in the evidence folder linked below)`,
+  ];
 }
 
 export async function rcaIssue(issue: string, opts: { folder?: string; runId?: string; since?: string; out?: string; share?: boolean; shots?: string[] } = {}): Promise<IssueResult> {
@@ -128,8 +166,11 @@ export async function rcaIssue(issue: string, opts: { folder?: string; runId?: s
   const codes = [...new Set(facts.match(/[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+/g) || [])].filter((c) => c.length >= 10 && !/^(NOT_|NO_|RAN_BUT|HTTP_|AWS_)/.test(c)).slice(0, 3);
   if (root) { for (const cd of codes) code.push(...lookupCode(root, cd, ref?.ref ?? null)); for (const q of (issue.match(/"([^"]{8,120})"/g) || []).slice(0, 2)) code.push(...lookupText(root, q.slice(1, -1), ref?.ref ?? null)); }
   clearTrails(); let trail: Trail | null = null;
-  try { trail = await agentCore(name, facts, { system: SYSTEM_ISSUE, model: agentModel() }); if (trail) setTrail(trail); } catch { trail = null; }
+  try { trail = await agentCore(name, facts, { system: SYSTEM_ISSUE, model: agentModel(), maxSteps: Number(process.env.RCA_ISSUE_STEPS) || 8 }); if (trail) setTrail(trail); } catch { trail = null; }
   const shots = [...(opts.shots || []).map((x) => path.resolve(x)), ...(opts.folder ? folderShots(path.resolve(opts.folder)) : [])];
+  // a known problem (understood from the platform code before): its mechanism, causes, fix and workaround are added where the model could not establish them
+  const rule = matchIssueRule(issue);
+  if (rule) { const merged = applyRule(trail?.conclusion ?? null, rule); trail = trail ? { ...trail, conclusion: merged } : { tool: name, model: 'rules', steps: [], conclusion: merged, note: '', ms: 0 }; setTrail(trail); }
   const html = issueHtml(issue, ev, extra, code.slice(0, 6), trail, ref?.label || 'no local copy', shots);
   const file = path.join(dir, issueFile(issue)); const b = await chromium.launch();
   try { const pg = await b.newPage(); await pg.setContent(html, { waitUntil: 'load' }); await pg.pdf({ path: file, format: 'A4', printBackground: true, margin: { top: '12mm', bottom: '14mm', left: '12mm', right: '12mm' }, displayHeaderFooter: true, headerTemplate: '<span></span>', footerTemplate: `<div style="font-size:8px;color:#6b7280;width:100%;text-align:center">RCA · ${esc(name)} · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>` }); } finally { await b.close().catch(() => {}); }

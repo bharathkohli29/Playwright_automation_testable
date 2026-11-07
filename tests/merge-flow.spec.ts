@@ -148,6 +148,7 @@ builds.forEach((build, index) => {
       // QA EKS: when the collector found a known platform cause (for example a stuck run), the failure message says it
       try { await eks?.stop(); const dg = eks?.diagnosis(); if (dg) note = `${note.slice(0, 260)} — Platform cause: ${dg.short}. Owner: ${dg.owner.split(':')[0]}. Details: eks-live/run_summary.md`.slice(0, 600); } catch { /* optional */ }
       const err = branchDir(build.dir, 'errors');
+      try { const txt = await page.locator('body').innerText({ timeout: 4000 }); fs.writeFileSync(`${err}/page-text.txt`, txt.slice(0, 8000)); } catch { /* the page is gone */ } // what the page itself said when the step failed
       await page.screenshot({ path: `${err}/failure.png`, fullPage: true }).catch(() => {});
       fs.writeFileSync(`${err}/network.json`, JSON.stringify(network, null, 2));
       if (/BLOCKED by the site/.test(msg)) fs.writeFileSync(`${err}/site-error.txt`, `${msg}\n`); // exactly what the site said, so the branch can be stopped at once and the reason is kept

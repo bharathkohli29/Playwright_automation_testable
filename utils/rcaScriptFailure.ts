@@ -13,7 +13,7 @@ import { screenshotHtml } from './rcaScreenshot';
  */
 export interface ParsedFailure { branch: string; step: string; first: string; labels: string[]; titles: string[]; aria: string[]; disabled: boolean; timeoutMs: number; locator: string }
 export interface ScriptFailure {
-  step: string; oneLine: string; headline: string; lines: string[]; symptom: string; uiFacts: string[]; run: string[]; s3: string[]; eks: string[]; code: CodeRef[]; condition: string;
+  pageMsgs: string[]; step: string; oneLine: string; headline: string; lines: string[]; symptom: string; uiFacts: string[]; run: string[]; s3: string[]; eks: string[]; code: CodeRef[]; condition: string;
   likely: string; proof: string; owner: string; check: string[];
 }
 const ANSI = /\u001b?\[\d+(?:;\d+)*m/g;
@@ -30,8 +30,21 @@ export function parseFailure(msg: string): ParsedFailure {
 const readJson = (f: string): any => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const compact = (l: string) => l.replace(/^\[[^\]]*\]\s*(\[[^\]]*\]\s*)?/, '').replace(/\b\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z\s*/g, '').replace(/"(?:trace_id|request_id|tenant_id|cell_id|fabric_id|instance_id|hostname|worker_id|pid)": "[^"]*",?\s*/g, '').replace(/\s+/g, ' ').trim().slice(0, 230);
 
+/** the messages the PAGE showed when the step failed (saved by the script in errors/page-text.txt): lines that read like a reason ("... not on this run plan yet", "unavailable ...") */
+export function pageMessages(branchDir: string): string[] {
+  let t = ''; try { t = fs.readFileSync(path.join(branchDir, 'errors', 'page-text.txt'), 'utf8'); } catch { return []; }
+  const REASON = /(not on (this|the)|not available|unavailable|cannot|can't|unable to|failed|error|no longer|must be|is required|expired|missing|not found|not ready|denied|forbidden|blocked|limit|exceed|invalid|not allowed|does not exist)/i;
+  return [...new Set(t.split(NLC).map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l.length >= 12 && l.length <= 180 && REASON.test(l) && !/^(copy|retry|details|new conversation)/i.test(l)))].slice(0, 3);
+}
+
+/** the condition that decides whether the text or the button is shown: disabled={...}, or the LAST  {cond && (<...  /  {cond ? (<...  in front of the matched line */
+export function condOf(snippet: string): string {
+  const d = /disabled=\{([^}]{3,140})\}/.exec(snippet)?.[1]; if (d) return d;
+  let last = ''; for (const m of snippet.matchAll(/\{\s*(!?[A-Za-z_][\w.()?!= ]{2,100}?)\s*(?:&&|\?)\s*\(?\s*(?:<|["'`])/g)) last = m[1].trim(); return last;
+}
+
 export function analyseScriptFailure(branchDir: string, msg: string): ScriptFailure {
-  const f = parseFailure(msg);
+  const f = parseFailure(msg); const pageMsgs = pageMessages(branchDir);
   const rd = readJson(path.join(branchDir, 'run-details.json')); const s3 = readJson(path.join(branchDir, 's3-check.json'));
   const run = rd ? [`Run ${String(rd.run_id || '').slice(0, 8)}: status ${rd.status}, phase ${rd.phase}`, `Tasks: ${rd.total_tasks} total, ${rd.completed_tasks} completed, ${rd.failed_tasks} failed, ${rd.skipped_tasks} skipped${rd.overall_score != null ? `, score ${rd.overall_score}` : ''}`] : ['No run-details.json: the run record was not captured.'];
   const checks: any[] = Array.isArray(s3?.checks) ? s3.checks : []; const tally: Record<string, number> = {}; for (const c of checks) tally[c.result] = (tally[c.result] || 0) + 1;
@@ -42,12 +55,12 @@ export function analyseScriptFailure(branchDir: string, msg: string): ScriptFail
 
   const uiFacts = [f.disabled ? 'The control was found but DISABLED.' : 'The control was not found or not clickable.', ...f.labels.map((l) => `Page text: "${l}"`), ...(f.timeoutMs ? [`The script waited ${Math.round(f.timeoutMs / 1000)} s.`] : [])];
   const root = codeRoot(); const ref = root ? resolveRef(root) : null; const code: CodeRef[] = [];
-  if (root) for (const l of f.labels.slice(0, 2)) code.push(...lookupText(root, l, ref?.ref ?? null));
-  const cond = code.map((c) => /disabled=\{([^}]{3,140})\}/.exec(c.snippet)?.[1] || '').find(Boolean) || '';
+  if (root) for (const l of [...f.labels, ...pageMsgs].slice(0, 3)) code.push(...lookupText(root, l, ref?.ref ?? null));
+  const cond = code.map((c) => condOf(c.snippet)).find(Boolean) || '';
   // second step: where the first flag of that condition is worked out (this is the real "why": what has to be true before the button is enabled)
   let defined = '';
   if (root && cond) {
-    const id = (cond.match(/[A-Za-z_][A-Za-z0-9_]{6,}/g) || []).find((w) => !/^(disabled|downloading)$/i.test(w) && !/ing$/.test(w)) || '';
+    const id = (cond.match(/[A-Za-z_][A-Za-z0-9_]{4,}/g) || []).find((w) => !/^(disabled|downloading)$/i.test(w) && !/ing$/.test(w)) || '';
     if (id) { const d = [`const ${id}`, `${id} =`].map((q) => lookupText(root, q, ref?.ref ?? null, { before: 1, after: 10 })).find((x) => x.length); if (d?.[0]) { code.push({ ...d[0], code: id }); defined = `${id} is worked out in ${d[0].file}:${d[0].line}.`; } }
   }
   const title = f.titles[0] || f.labels.find((l) => /available|until|after/i.test(l)) || ''; const name = f.aria[0] || f.labels.find((l) => l !== title) || f.labels[0] || 'control';
@@ -65,6 +78,14 @@ export function analyseScriptFailure(branchDir: string, msg: string): ScriptFail
     likely = `The platform did not report the run as finished in that time. It may still be running, be stuck (for example waiting for capacity), or have finished without the page showing it. The run record, the cluster lines and the code below show which.${rd?.status ? ` The run record says status ${rd.status}, phase ${rd.phase}.` : ''}`;
     proof = 'Unknown until the run record and the logs are read; nothing here proves a cause.'; owner = 'Undecided: Platform if the run is stuck, the script if the page did not show a finished run.';
     check = ['Open the run page and see whether it has finished since.', 'Read the orchestrator lines below for repeated rejections or a quiet period.', 'If the run is stuck, report it to the platform team with the run id.'];
+  } else if (pageMsgs.length) {
+    const m = pageMsgs[0];
+    oneLine = `Step ${f.step || '?'} failed: the page says "${m}"${f.disabled ? ' and the button stayed disabled' : ''}.`;
+    symptom = `The script reached step ${f.step || '?'}. The page showed "${m}"${f.disabled ? ', and the button the script needed stayed disabled' : ''}, so the script could not go on.`;
+    likely = `The platform does not let the run go on while "${m}" is shown.${cond ? ` The frontend condition is ${cond} (${code[0].file}:${code[0].line}).` : code.length ? ` The message is written in ${code[0].file}:${code[0].line}.` : ''}`;
+    proof = code.length ? 'Proven in the code for what the page says; Inferred for why that condition was true (the run files do not say).' : 'Inferred from the page text only (the platform code was not available for a look-up).';
+    owner = 'Undecided: the script (a branch it did not add to the plan) or the Platform (it should have been on the plan).';
+    check = ['Open the page again and see whether the message is still shown.', 'Check that the branch exists on the repository and was picked on the Configure card.', 'Read the planning lines of the cluster for this branch (the RCA report shows them when the cluster can be read).'];
   } else {
     oneLine = `Step ${f.step || '?'} failed: ${f.first || 'the script step did not complete'}`;
     symptom = f.first || 'A step of the script failed.';
@@ -72,7 +93,7 @@ export function analyseScriptFailure(branchDir: string, msg: string): ScriptFail
     proof = 'Unknown: the evidence names no cause.'; owner = 'Undecided'; check = ['Open the run page and compare it with the failure screenshot (errors/failure.png).'];
   }
   const lines = [oneLine, likely, `Proof: ${proof}`, `Owner: ${owner}`];
-  return { step: f.step, oneLine, headline: `\u274C Branch ${f.branch || path.basename(branchDir)} failed${f.step ? ` at step ${f.step}` : ''}: ${f.disabled && name !== 'control' ? `"${name}" stayed disabled` : oneLine.replace(/^Step [0-9]+ failed: /, '').slice(0, 160)}`.trim(), lines, symptom, uiFacts, run, s3: s3lines, eks, code, condition: cond, likely, proof, owner, check };
+  return { pageMsgs, step: f.step, oneLine, headline: `\u274C Branch ${f.branch || path.basename(branchDir)} failed${f.step ? ` at step ${f.step}` : ''}: ${f.disabled && name !== 'control' ? `"${name}" stayed disabled` : oneLine.replace(/^Step [0-9]+ failed: /, '').slice(0, 160)}`.trim(), lines, symptom, uiFacts, run, s3: s3lines, eks, code, condition: cond, likely, proof, owner, check };
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));

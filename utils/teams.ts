@@ -149,17 +149,19 @@ export async function notifyTeams(page: Page, i: TeamsInfo): Promise<boolean> {
     }
     const reason = (i.note || 'no reason captured').replace(/\s+/g, ' ').trim().slice(0, 600);
     const label = i.status === 'blocked' ? 'blocked by the site' : i.status === 'environment' ? 'environment problem' : 'failed';
+    const human = !!(i.extra && i.extra.length); // an explanation in plain words replaces the raw failure text
     const body: unknown[] = [
-      { type: 'TextBlock', text: `❌ Branch ${i.branch} — ${label}`, weight: 'Bolder', wrap: true, color: 'Attention' },
+      { type: 'TextBlock', text: i.headline || `❌ Branch ${i.branch} — ${label}`, weight: 'Bolder', wrap: true, color: 'Attention' },
       { type: 'TextBlock', text: where, isSubtle: true, wrap: true, spacing: 'Small' },
-      { type: 'TextBlock', text: `Why: ${reason}`, wrap: true },
+      ...(human ? [] : [{ type: 'TextBlock', text: `Why: ${reason}`, wrap: true }]),
     ];
+    const extras = [...toolSummary(i.branchDir), ...extraBlocks(i.extra)];
     // The failure message (shrink the screenshot + post) is done by a separate detached process, so it can never hold up or break the run:
     // the test returns at once and the next branch starts. Its log: <branch folder>/errors/teams-notify.log
     const dir = i.imagePath ? path.dirname(i.imagePath) : process.cwd();
-    if (dryRun()) return dryTeams(card(body, url, i.evidenceUrl, toolSummary(i.branchDir)), i.branchDir || dir);
+    if (dryRun()) return dryTeams(card(body, url, i.evidenceUrl, extras), i.branchDir || dir);
     const jobFile = path.join(dir, 'teams-job.json');
-    fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl, toolSummary(i.branchDir)), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
+    fs.writeFileSync(jobFile, JSON.stringify({ webhook: process.env.TEAMS_WEBHOOK_URL!.trim(), payload: card(body, url, i.evidenceUrl, extras), imagePath: i.imagePath || '', log: path.join(dir, 'teams-notify.log') }));
     const child = spawn(process.execPath, [path.join(__dirname, 'teamsWorker.js'), jobFile], { detached: true, stdio: 'ignore', cwd: path.join(__dirname, '..'), windowsHide: true, env: cleanEnv() });
     // wait (max 2 min) until the separate sender process has finished, so the message is out before the next branch starts.
     // The sender is its own process: if it crashes or hangs, the run just carries on after the wait.

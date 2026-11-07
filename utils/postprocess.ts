@@ -18,6 +18,8 @@ import { recordPostStep, refreshTimingWorkbook } from './timings';
 import { writeReports, RCA_DIR } from './rcaReport';
 import { prepareCode } from './rcaCode';
 import { analyseScriptFailure } from './rcaScriptFailure';
+import { rcaIssue, explainLines } from './rcaIssue';
+import type { IssueResult } from './rcaIssue';
 import { agentEnabled, agentForRun } from './rcaAgent';
 import { rcaModelEnabled, writeReport } from './rcaWriter';
 
@@ -114,11 +116,21 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
   else if (s3Failed) console.log(`  ${job.branch}: S3 check failed; SharePoint and Teams go out with the root causes from the QA EKS logs only`);
   // One RCA report per defective tool, in the folder "RCA Report" of the branch folder (uploaded to SharePoint with it, before the copy below). The local model words them
   // (RCA_MODEL=off: the rules do); a tool the model cannot word safely gets the rule-written report. Needs the S3 result or the live EKS capture.
+  let issueRes: IssueResult | null = null;
   await step('rcareport', async () => {
     if (noData) return 'skipped';
     try { prepareCode((m) => console.log(`  ${m}`)); } catch { /* the code section is optional */ }
-    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined, { failure: job.failure, agent: agentEnabled() ? agentForRun : undefined });
-    if (!rows.length) return 'skipped';
+    const rows = await writeReports(job.branchDir, undefined, rcaModelEnabled() ? writeReport : undefined, { agent: agentEnabled() ? agentForRun : undefined });
+    // a step of the script failed: the platform problem behind it gets its own report, RCA_<the problem>.pdf: the cluster now, the platform code, the code analysis, the screenshot
+    if (job.failure) {
+      try {
+        const sf0 = analyseScriptFailure(job.branchDir, job.failure); const issueText = `${sf0.pageMsgs[0] || sf0.oneLine}. ${sf0.symptom}`;
+        issueRes = await rcaIssue(issueText, { folder: job.branchDir, since: '2h', runId: (() => { try { return String(JSON.parse(fs.readFileSync(path.join(job.branchDir, 'run-details.json'), 'utf8')).run_id || ''); } catch { return ''; } })() });
+        console.log(`  RCA report of the problem: ${path.basename(issueRes.file)} (${issueRes.evidence.reached ? 'cluster read' : 'cluster not reached'}${issueRes.trail ? `, ${issueRes.trail.steps.length} analysis step(s)` : ''})`);
+      } catch (e) { console.log(`  RCA report of the problem could not be written (${e instanceof Error ? e.message : e})`); }
+    }
+    if (!rows.length && !issueRes) return 'skipped';
+    if (!rows.length) return `1 report of the problem in "${RCA_DIR}"`;
     const m = rows.filter((r) => r.source === 'model').length; const red = rows.filter((r) => r.tone === 'red'); const nt = rows.filter((r) => !r.triggered).length; const slow = rows.find((r) => r.note);
     console.log(`  RCA Report: ${rows.length} tool report(s): ${rows.length - red.length} green, ${red.length} red (${nt} not triggered); ${m} of the red worded by the model${slow ? ` (${red.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
     return `${rows.length} report(s) in "${RCA_DIR}": ${rows.length - red.length} green, ${red.length} red, ${m} by the model`;
@@ -138,9 +150,9 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     }
     // notifyTeams does not use the page; a passed branch never needs a screenshot
     const sent = await notifyTeams(undefined as unknown as Page, {
-      branch: job.branch, repo: job.repo, status: 'passed', note: job.note || '', url: job.url,
+      branch: job.branch, repo: job.repo, status: job.failure ? 'failed' : 'passed', note: job.note || '', url: job.url,
       minutes: job.minutes, branchDir: job.branchDir, evidenceUrl,
-      ...(job.failure ? (() => { const sf = analyseScriptFailure(job.branchDir, job.failure); return { headline: sf.headline, extra: sf.lines }; })() : eksOnly ? { headline: job.timedOut ? `⏱️ Branch ${job.branch}: the run did not finish within ${job.minutes ?? '?'} minutes, root causes from the QA EKS logs of this run` : `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
+      ...(job.failure ? (() => { const sf = analyseScriptFailure(job.branchDir, job.failure); const shot = path.join(job.branchDir, 'errors', 'failure.png'); return { headline: sf.headline, extra: explainLines(sf, issueRes?.trail ?? null, issueRes ? path.basename(issueRes.file) : 'the RCA Report folder'), imagePath: fs.existsSync(shot) ? shot : undefined }; })() : eksOnly ? { headline: job.timedOut ? `⏱️ Branch ${job.branch}: the run did not finish within ${job.minutes ?? '?'} minutes, root causes from the QA EKS logs of this run` : `⚠️ Branch ${job.branch}: S3 check not available, root causes from the QA EKS logs only`, extra: (eksOnly as { lines: string[] }).lines } : {}),
     });
     if (!sent) throw new Error('Teams message could not be sent (network)');
     if (!dryRun() && runId) { try { fs.writeFileSync(sentFile, JSON.stringify({ run_id: runId, at: new Date().toISOString(), complete: !s3Failed }, null, 1)); } catch { /* ignore */ } }

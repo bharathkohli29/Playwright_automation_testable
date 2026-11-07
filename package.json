@@ -39,7 +39,7 @@
     "rca:cross": "tsx utils/rcaCross.ts",
     "validate": "tsx utils/validateFolder.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test:unit": "node --import tsx --test unit/logic.test.ts unit/evidence.test.ts unit/validate.test.ts unit/pyBugRule.test.ts unit/bugRule.test.ts unit/teamsToolLog.test.ts unit/dummyCommit.test.ts unit/rca.test.ts unit/rcaWriter.test.ts unit/rcaDataset.test.ts unit/rcaBlind.test.ts unit/rcaEval.test.ts unit/setupModel.test.ts unit/rcaRedact.test.ts unit/rcaGold.test.ts unit/rcaCross.test.ts unit/rcaCode.test.ts unit/codeLogin.test.ts unit/rcaScriptFailure.test.ts unit/postSweep.test.ts unit/preflightGate.test.ts unit/eksIpNotice.test.ts unit/rcaHonesty.test.ts unit/rcaAgent.test.ts unit/rcaIssue.test.ts unit/eksSsoAuto.test.ts",
+    "test:unit": "node --import tsx --test unit/logic.test.ts unit/evidence.test.ts unit/validate.test.ts unit/pyBugRule.test.ts unit/bugRule.test.ts unit/teamsToolLog.test.ts unit/dummyCommit.test.ts unit/rca.test.ts unit/rcaWriter.test.ts unit/rcaDataset.test.ts unit/rcaBlind.test.ts unit/rcaEval.test.ts unit/setupModel.test.ts unit/rcaRedact.test.ts unit/rcaGold.test.ts unit/rcaCross.test.ts unit/rcaCode.test.ts unit/codeLogin.test.ts unit/rcaScriptFailure.test.ts unit/postSweep.test.ts unit/preflightGate.test.ts unit/eksIpNotice.test.ts unit/rcaHonesty.test.ts unit/rcaAgent.test.ts unit/rcaIssue.test.ts unit/eksSsoAuto.test.ts unit/issueRules.test.ts",
     "check": "npm run typecheck && npm run test:unit",
     "status": "tsx status-dashboard/server.ts"
   },
