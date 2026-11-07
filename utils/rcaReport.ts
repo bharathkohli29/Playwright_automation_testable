@@ -1,6 +1,7 @@
 import { codeSection } from './rcaCode';
 import { analyseScriptFailure, scriptFailureHtml } from './rcaScriptFailure';
-import { trailHtml, clearTrails } from './rcaTrail';
+import { trailHtml, clearTrails, issueName } from './rcaTrail';
+import { folderShots } from './rcaScreenshot';
 import type { CodeStatus } from './rcaCode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -201,9 +202,9 @@ export async function writeReports(branchDir: string, only?: string[], writer: R
   fs.rmSync(out, { recursive: true, force: true });
   if (!list.length) {
     // the branch failed before any tool data exists: the report is the script-failure page alone (the three sources it could read), never nothing
-    fs.mkdirSync(out, { recursive: true }); const nm = `RCA_Report_${safe(path.basename(branchDir))}.pdf`;
+    fs.mkdirSync(out, { recursive: true }); const sfo = analyseScriptFailure(branchDir, opts.failure as string); const nm = `RCA_${issueName(sfo.oneLine)}.pdf`;
     const b0 = await chromium.launch();
-    try { const pg = await b0.newPage(); await pg.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure as string))), { waitUntil: 'load' }); await pg.pdf({ path: path.join(out, nm), ...pdfOpts(`RCA · ${esc(path.basename(branchDir))}`) }); } finally { await b0.close().catch(() => {}); }
+    try { const pg = await b0.newPage(); await pg.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure as string), folderShots(branchDir))), { waitUntil: 'load' }); await pg.pdf({ path: path.join(out, nm), ...pdfOpts(`RCA · ${esc(path.basename(branchDir))}`) }); } finally { await b0.close().catch(() => {}); }
     const row: ReportRow = { tool: '(script step)', kind: 'unknown', tone: 'red', state: 'SCRIPT FAILURE', triggered: false, file: nm, rule: '', source: 'rules' };
     fs.writeFileSync(path.join(out, 'index.json'), JSON.stringify({ reports: [row] }, null, 2)); return [row];
   }
@@ -223,10 +224,10 @@ export async function writeReports(branchDir: string, only?: string[], writer: R
     fs.mkdirSync(out, { recursive: true });
     if (combinedOn()) {
       const cpage = await ctx.newPage();
-      try { await cpage.setContent(combinedHtml(items, opts.failure ? scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure)) : ''), { waitUntil: 'load' }); await cpage.pdf({ path: path.join(out, combined), ...pdfOpts(`RCA · ${esc(first.branch || '')}`) }); } finally { await cpage.close().catch(() => {}); }
+      try { await cpage.setContent(combinedHtml(items, opts.failure ? scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure), folderShots(branchDir)) : ''), { waitUntil: 'load' }); await cpage.pdf({ path: path.join(out, combined), ...pdfOpts(`RCA · ${esc(first.branch || '')}`) }); } finally { await cpage.close().catch(() => {}); }
     } else if (opts.failure) { // the script's own failure is its own PDF next to the folders, never mixed into a tool's report
       const fpage = await ctx.newPage();
-      try { await fpage.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure))), { waitUntil: 'load' }); await fpage.pdf({ path: path.join(out, 'Script_failure.pdf'), ...pdfOpts('RCA · script failure') }); } finally { await fpage.close().catch(() => {}); }
+      try { await fpage.setContent(docOf(scriptFailureHtml(analyseScriptFailure(branchDir, opts.failure), folderShots(branchDir))), { waitUntil: 'load' }); await fpage.pdf({ path: path.join(out, `RCA_${issueName(analyseScriptFailure(branchDir, opts.failure as string).oneLine)}.pdf`), ...pdfOpts('RCA · script failure') }); } finally { await fpage.close().catch(() => {}); }
     }
     for (const { tool, w, p } of meta) {
       let file = combined;

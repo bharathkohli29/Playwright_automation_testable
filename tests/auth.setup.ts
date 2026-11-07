@@ -1,5 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
-import { ensureEksSignedIn } from '../utils/eksLogin';
+import { ensureEksSignedIn, eksSignedIn } from '../utils/eksLogin';
+import { autoLoginConfigured, autoSsoLogin } from '../utils/eksSsoAuto';
 import { preflightAtStart } from '../utils/preflight';
 import { authFile } from '../utils/env';
 import { loginToPlatform } from '../utils/platformLogin';
@@ -16,6 +17,7 @@ const okta = /^okta$/i.test((process.env.LOGIN_MODE || '').trim());
 // QA EKS cluster sign-in (only when EKS_AUTO is on): if it expired, a private browser window opens and you sign in once; no answer = the round carries on without the cluster logs
 setup('QA EKS sign-in', async () => {
   setup.setTimeout(((Number(process.env.EKS_LOGIN_WAIT_MIN) || 4) + 2) * 60_000);
+  if (autoLoginConfigured() && !eksSignedIn()) await autoSsoLogin(); // no person: the script signs in with the account of .env first
   await ensureEksSignedIn();
 });
 

@@ -5,6 +5,7 @@ import * as dotenv from 'dotenv';
 import { eksSignedIn } from './eksLogin';
 import { eksAutoEnabled } from './eksAnalyze';
 import { prepareCode } from './rcaCode';
+import { autoLoginConfigured, autoSsoLogin } from './eksSsoAuto';
 import { announceIfBlocked } from './eksIpNotice';
 
 /**
@@ -15,10 +16,16 @@ import { announceIfBlocked } from './eksIpNotice';
  */
 const GREEN = '\x1b[32m✔\x1b[0m'; const YELLOW = '\x1b[33m!\x1b[0m'; const BOLD = (s: string) => `\x1b[1m${s}\x1b[0m`;
 
-export function gate(): boolean {
+export async function gate(): Promise<boolean> {
   dotenv.config({ override: true });
   if (!eksAutoEnabled()) { console.log(`${YELLOW} QA EKS: EKS_AUTO is off, the cluster logs are not captured in this run`); return false; }
   if (eksSignedIn()) { console.log(`${GREEN} QA EKS cluster: signed in`); return true; }
+  // no person at the keyboard: the script signs in by itself with the account made for it (EKS_LOGIN_EMAIL / EKS_LOGIN_PASSWORD in .env); the window below is only the fallback
+  if (autoLoginConfigured()) {
+    console.log(`\n${YELLOW} QA EKS cluster: not signed in, the script signs in by itself ...`);
+    if ((await autoSsoLogin((m) => console.log(`   ${m}`))) && eksSignedIn()) { console.log(`${GREEN} QA EKS cluster: signed in, starting the other steps`); return true; }
+    console.log(`${YELLOW} automatic sign-in did not finish: falling back to the window that waits for a person`);
+  }
   console.log(`\n${YELLOW} ${BOLD('QA EKS cluster: you are not signed in.')}`);
   console.log(`   A private browser window opens now: sign in there as ${process.env.EKS_LOGIN_EMAIL || 'the QA account'} (the account made for the EKS sign-in: email, password, any MFA).`);
   console.log('   The terminal waits for you; when it shows the green tick the other steps start.\n');
@@ -39,7 +46,7 @@ export function startSweep(): { ok: boolean; msg: string } {
 }
 
 if (require.main === module) (async () => {
-  try { gate(); } catch (e) { console.log(`${YELLOW} sign-in check skipped (${e instanceof Error ? e.message : String(e)})`); }
+  try { await gate(); } catch (e) { console.log(`${YELLOW} sign-in check skipped (${e instanceof Error ? e.message : String(e)})`); }
   // signed in, but is this PC's IP on the cluster allow-list? When not, the IP is shown here (and as a popup) with the text to send to the cluster admin
   try { if (eksAutoEnabled() && eksSignedIn()) await announceIfBlocked(console.log); } catch { /* the check is optional */ }
   try { const ok = prepareCode((m) => console.log(`  ${m}`)); console.log(`${ok ? GREEN : YELLOW} platform code ${ok ? 'ready: the reports show where each error is raised' : 'not available: the reports are written without the code section'}`); } catch (e) { console.log(`${YELLOW} platform code skipped (${e instanceof Error ? e.message : String(e)})`); }

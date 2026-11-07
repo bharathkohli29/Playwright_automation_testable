@@ -42,6 +42,7 @@ export function act(root: string, ref: string | null, action: string, input: str
       const q = input.trim(); if (q.length < 4) return 'search needs at least 4 characters';
       const g = spawnSync('git', ['-C', root, 'grep', '-n', '-F', q, ...(ref ? [ref] : []), '--', '*.py', '*.ts', '*.tsx', '*.js', '*.cs', '*.java'], { encoding: 'utf8', timeout: 25_000, maxBuffer: 6_000_000 });
       const lines = String(g.stdout || '').split(NLC).filter(Boolean).map((l) => (ref && l.startsWith(`${ref}:`) ? l.slice(ref.length + 1) : l)).filter((l) => !/(^|\/)(tests?|test_[^/]*|alembic|migrations|node_modules|scripts|diagnostics|docs)(\/|:)/i.test(l)).slice(0, 6);
+      if (!lines.length && /^[a-z0-9]+(-[a-z0-9]+)+$/.test(q)) return act(root, ref, 'search', q.toUpperCase().split('-').join('_')); // a rule name like cell-cpu-capacity: try the code form CELL_CPU_CAPACITY
       return lines.length ? redact(lines.map((l) => l.slice(0, 200)).join(NLC)).text : 'no match in the platform code';
     }
     if (action === 'read') {
@@ -93,12 +94,14 @@ export function groundConclusion(raw: string, facts: string, observations: strin
   return { c: { cause: cause.slice(0, 500), proof, evidence: evidence.slice(0, 160), owner: String(j.owner || '').slice(0, 80), next: String(j.next || '').slice(0, 220) }, note: '' };
 }
 
-export async function runAgent(p: FactPack, opts: { host?: string; model?: string } = {}): Promise<Trail | null> {
+/** the loop itself, for any question: a label (tool name or issue name), the facts text, and the settings */
+export async function agentCore(label: string, facts: string, opts: { host?: string; model?: string; system?: string } = {}): Promise<Trail | null> {
   const t0 = Date.now(); const model = opts.model || agentModel();
   const root = codeRoot(); if (!root) return null;
-  if (!isLocalHost(opts.host || HOST()) && !remoteAllowed()) return { tool: p.tool, model, steps: [], conclusion: null, note: 'blocked: the Ollama address is not on this PC (the team rule is local only)', ms: 0 };
-  const ref = resolveRef(root).ref; const facts = factsText(p, reportFromRules(p)); const steps: Step[] = []; let observations = '';
-  const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: `${facts}${NLC}${NLC}Start. First codes you may look for: ${[...new Set([p.rule?.id, ...Array.from(new Set((`${p.s3Note} ${p.failureJson.join(' ')}`.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g) || [])))].filter(Boolean))].slice(0, 4).join(', ') || '(none named)'}.` }];
+  if (!isLocalHost(opts.host || HOST()) && !remoteAllowed()) return { tool: label, model, steps: [], conclusion: null, note: 'blocked: the Ollama address is not on this PC (the team rule is local only)', ms: 0 };
+  const ref = resolveRef(root).ref; const steps: Step[] = []; let observations = '';
+  const codes = [...new Set(facts.match(/[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+/g) || [])].filter((c) => c.length >= 10 && !/^(NOT_|NO_|RAN_BUT|HTTP_|AWS_)/.test(c)).slice(0, 4);
+  const messages = [{ role: 'system', content: opts.system || SYSTEM }, { role: 'user', content: `${facts}${NLC}${NLC}Start. The error codes in the facts (search for them exactly as written): ${codes.join(', ') || '(none named)'}.` }];
   let conclusion: Conclusion | null = null; let note = ''; let nudged = false;
   try {
     for (let i = 0; i < MAX_STEPS(); i++) {
@@ -108,13 +111,17 @@ export async function runAgent(p: FactPack, opts: { host?: string; model?: strin
       // the first finish is sent back once when the model has not read any place yet: the condition that guards the failure is only visible in a read
       if (s.action === 'finish' && !nudged && !steps.some((x) => x.action === 'read') && i < MAX_STEPS() - 1) { nudged = true; steps.push({ thought: s.thought, action: 'finish', input: '(sent back)', observation: 'not accepted yet: read the place (read file:line) to see the condition that guards the failure' }); messages.push({ role: 'user', content: 'Not yet. You have not read any place in the code. Use read with a file:line from a search result, so you can see the condition that leads to the failure, then finish.' }); continue; }
       if (s.action === 'finish') { const g = groundConclusion(s.input, facts, observations); conclusion = g.c; note = g.note; steps.push({ thought: s.thought, action: 'finish', input: short(s.input, 200), observation: g.c ? 'conclusion kept (grounded)' : `conclusion not kept: ${g.note}` }); break; }
-      const obs = short(act(root, ref, s.action, s.input)); observations += `${NLC}${obs}`; audit(p.tool, i + 1, s.action, s.input, obs.length);
+      const obs = short(act(root, ref, s.action, s.input)); observations += `${NLC}${obs}`; audit(label, i + 1, s.action, s.input, obs.length);
       steps.push({ thought: s.thought, action: s.action, input: s.input.slice(0, 120), observation: obs }); messages.push({ role: 'user', content: `Observation:${NLC}${obs}${NLC}${NLC}Next step (one JSON object).` });
       if (i === MAX_STEPS() - 2) messages.push({ role: 'user', content: 'You have one step left: reply with action finish now.' });
     }
     if (!conclusion && !note) note = 'no final answer within the step limit';
   } catch (e) { note = `the model could not be reached (${e instanceof Error ? e.message : e})`; }
-  return { tool: p.tool, model, steps, conclusion, note, ms: Date.now() - t0 };
+  return { tool: label, model, steps, conclusion, note, ms: Date.now() - t0 };
+}
+
+export async function runAgent(p: FactPack, opts: { host?: string; model?: string } = {}): Promise<Trail | null> {
+  return agentCore(p.tool, factsText(p, reportFromRules(p)), opts);
 }
 
 /** for writeReports: runs the analysis for the red tools that have a reason to look at the code, at most RCA_AGENT_MAX of them, and registers each trail for the report */

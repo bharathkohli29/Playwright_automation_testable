@@ -92,7 +92,8 @@ export function prepareCode(say: (m: string) => void = console.log): boolean {
     root = codeRoot();
   } else if (!root) { say(`platform code: RCA_CODE_DIR is set but is not a git checkout (${process.env.RCA_CODE_DIR}). The reports are written without the code section.`); return false; }
   if (!root) return false;
-  const v = resolveRef(root); say(`platform code: ${v.label} (new builds on ${(process.env.RCA_CODE_BRANCH ?? DEFAULT_BRANCH) || 'the working tree'} are fetched before the reports are written)`); return true;
+  const v = resolveRef(root); const fetching = /^(1|yes|on|true)$/i.test((process.env.RCA_CODE_FETCH ?? 'on').trim());
+  say(`platform code: ${v.label} (${fetching ? `new builds on ${(process.env.RCA_CODE_BRANCH ?? DEFAULT_BRANCH) || 'the working tree'} are fetched before the reports are written` : 'a fixed snapshot of your local copy: nothing is fetched (RCA_CODE_FETCH=off); set it to on, with a token, to pull recent commits'})`); return true;
 }
 
 /** the error codes the facts mention (upper-case words with underscores), most specific first */

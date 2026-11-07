@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { codeRoot, resolveRef, lookupText } from './rcaCode';
 import type { CodeRef } from './rcaCode';
+import { screenshotHtml } from './rcaScreenshot';
 
 /**
  * RCA of a failure of the SCRIPT'S OWN step (for example "[CS_X/15] locator.click: Timeout 20000ms exceeded ... <button disabled ... title=...>").
@@ -76,7 +77,7 @@ export function analyseScriptFailure(branchDir: string, msg: string): ScriptFail
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 const ul = (xs: string[]) => `<ul>${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
-export function scriptFailureHtml(sf: ScriptFailure): string {
+export function scriptFailureHtml(sf: ScriptFailure, shots: string[] = []): string {
   const code = sf.code.length ? sf.code.map((c) => `<div class="ev"><b>${esc(c.file)}:${c.line}</b><pre style="margin:6px 0 0;white-space:pre-wrap;font-size:10.5px">${esc(c.snippet)}</pre></div>`).join('') : '<p class="small">No platform code was available for a look-up.</p>';
   return `<section class="tool"><div class="banner" style="background:#b45309"><h1>SCRIPT FAILURE: step ${esc(sf.step || '?')}</h1><div>the script's own step failed; the three sources below say what they show</div></div>
 <div class="one" style="border:2px solid #f59e0b;background:#fffbeb">${esc(sf.oneLine)}</div>
@@ -86,6 +87,7 @@ export function scriptFailureHtml(sf: ScriptFailure): string {
 <h3>1 · Run files and S3</h3>${ul([...sf.run, ...sf.s3])}
 <h3>2 · EKS logs</h3>${ul(sf.eks)}
 <h3>3 · Platform code</h3>${code}
+${screenshotHtml(shots)}
 <h2>Who fixes it</h2><p>${esc(sf.owner)}</p>
 <h2>What to check next</h2>${ul(sf.check)}
 </section>`;

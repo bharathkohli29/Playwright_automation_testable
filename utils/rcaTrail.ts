@@ -22,3 +22,10 @@ export function trailHtml(tool: string): string {
     : `<p class="small">No conclusion was kept: ${esc(t.note || 'the answer was not grounded in what the steps showed')}.</p>`;
   return `<h2>Code analysis: Thought → Action → Observation</h2><p class="small">The local model decided what to look for in the platform code; each step is a read-only look-up (${esc(t.model)}, ${Math.round(t.ms / 1000)} s).</p><table class="sm"><tr><th>#</th><th>Thought</th><th>Action</th><th>Observation</th></tr>${rows}</table>${c}`;
 }
+
+/** RCA_<Name_of_the_issue>: the first words of the problem, letters, digits and underscores only (an error code stays whole), joined with underscores */
+export function issueName(text: string): string {
+  const words = String(text || '').split(String.fromCharCode(10))[0].replace(/[^A-Za-z0-9_ ]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 9);
+  let name = words.join('_'); if (name.length > 70) name = name.slice(0, 70).replace(/_[^_]*$/, '');
+  return name ? name[0].toUpperCase() + name.slice(1) : 'Issue';
+}

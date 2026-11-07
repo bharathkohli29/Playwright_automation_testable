@@ -140,7 +140,7 @@ test('by default every tool gets its OWN PDF in Triggered / Not triggered, each 
   const d = branch([{ tool: 'gitleaks', task: 'g', phase: 'Failed', exit: 1, lines: ['WRN leaks found: 3'] }, { tool: 'pip-audit', task: 'p', phase: 'Failed', exit: 1, lines: ["Failed to upgrade `pip`"] }]);
   const rows = await writeReports(d, undefined, undefined, { failure: `1 case(s) failed:${String.fromCharCode(10)}[X/15] locator.click: Timeout 20000ms exceeded.` });
   assert.deepEqual(rows.map((r) => r.file).sort(), ['Triggered/RCA_gitleaks.pdf', 'Triggered/RCA_pip-audit.pdf']);
-  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).sort(), ['Script_failure.pdf', 'Triggered', 'index.json']); // no combined PDF
+  assert.deepEqual(fs.readdirSync(path.join(d, 'RCA Report')).sort(), ['RCA_Step_15_failed_locator_click_Timeout_20000ms_exceeded.pdf', 'Triggered', 'index.json']); // no combined PDF
   const html = reportHtml(reportFromRules(buildFactPack(d, 'pip-audit')), buildFactPack(d, 'pip-audit')); for (const t of ['S3 result', 'EKS logs', 'Platform code']) assert.match(html, new RegExp(t));
   process.env.RCA_COMBINED = 'on'; try { await writeReports(d); assert.ok(fs.readdirSync(path.join(d, 'RCA Report')).some((f) => /^RCA_Report_.*\.pdf$/.test(f))); } finally { delete process.env.RCA_COMBINED; }
 });
