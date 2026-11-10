@@ -26,3 +26,10 @@ F:\rca-train\.venv\Scripts\python.exe rca-train\train_lora.py --from-facts --dat
 2. Aim for 150 or more approved cases (`dataset.json` says `enough`).
 3. Train on `train.jsonl` (same command without `--from-facts`), then score on `holdout.jsonl`. The adapter is only used if it beats the stock model on the held-out cases and the checks in `utils/rcaWriter.ts` still accept its answers.
 4. Load it into the local Ollama as a NEW model name (merge into the base and convert to GGUF with llama.cpp, or an `ADAPTER` line in a Modelfile); `RCA_MODEL_NAME` in `.env` picks it. The stock `rca-writer` stays as the fallback. The llama.cpp converter is not downloaded yet.
+
+## Which model is the permanent one (10 Nov 2026)
+
+- **`rca-writer-v6`** is the permanent trained model: `RCA_MODEL_NAME=rca-writer-v6` in `.env`. It stays local (Ollama and `F:\rca-train`); model files are never pushed.
+- **`rca-writer`** (stock `qwen3:4b` plus `rca-model/Modelfile`) stays as the fallback and is created by `npm run model:setup` when it is missing.
+- `rca-writer-v0` is kept as the untrained-by-reviewers baseline for comparison.
+- `rca-writer-v2`, `-v3` and `-v4` were superseded by v6 and removed from Ollama, together with their merged weights and GGUF files. Their small adapters (`out-v2`, `out-v3`, `out-v4`) are kept, so a version can be rebuilt with `merge_lora.py` if it is ever needed.
