@@ -237,28 +237,81 @@ const PY: TechniqueTool[] = [
 ];
 
 const JV: TechniqueTool[] = [
-  m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'pmd'),
-  m('Readability / Maintainability', 'Cognitive Complexity', 'ck', 'pmd'),
-  m('Code Quality Auditing', 'Code Duplication', 'cpd'),
-  m('Static Code Analysis', 'Lint / Rule Violations', 'checkstyle', 'pmd'),
-  m('Static Code Analysis', 'Secret Detection', 'detect-secrets'),
-  m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'spotbugs'),
-  m('Security White-box Testing', 'Dependency Risk (SCA)', 'owasp-depcheck', 'maven-versions', 'maven-checksum'),
-  m('Control Flow Testing', 'Statement Coverage', 'jacoco'),
-  m('Control Flow Testing', 'Branch Coverage', 'jacoco'),
-  m('Mutation Testing', 'Mutation Score', 'pitest'),
-  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'coverage_delta', 'java-coverage-delta'),
-  m('Data Flow Testing', 'All Definition Coverage', 'def_use', 'java-all-defs-uses'),
-  m('Data Flow Testing', 'All Uses Coverage', 'def_use', 'java-all-defs-uses'),
-  m('Development Process Analysis', 'Code Churn', 'pydriller', 'git_churn'),
-  m('Code Quality', 'Technical Debt', 'pydriller'),
-  m('Code Quality', 'Test Coverage', 'jacoco'),
-  m('Compliance Testing', 'Secret Detection', 'gitleaks'),
-  m('Security Testing', 'Secret Detection', 'gitleaks'),
-  m('Performance Testing', 'Static Analysis', 'semgrep-perf-static'),
-  m('Performance Testing', 'Dependency Analysis', 'java-perf-dependency'),
-  m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'),
-  m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'),
+  // Java mapping derived from the platform's own selection code (qa ae5ad4fd3: gate_scoring._primary_tools_for_row over the 132 taxonomy leaves, Java registry tools) on 13 Nov 2026.
+  // Ordered list = first tool is primary; co-providers (the registry's 'declares the metric' list, no order) = primary [] and any one of them is enough.
+  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'ck', 'jacoco'), rowsOnly: true, rows: [
+    { classes: ['Static Analysis Metric', 'Test Prioritization'], primary: ['lizard'], secondary: ['ck'] },
+    { classes: ['Decision Coverage'], primary: ['jacoco'], secondary: [] },
+    { classes: ['Maintainability Analysis'], primary: ['lizard'], secondary: [] },
+  ] },
+  { ...m('Readability / Maintainability', 'Cognitive Complexity', 'pmd', 'lizard', 'ck'), rowsOnly: true, rows: [
+    { classes: ['Maintainability Evaluation', 'Refactoring Guidance', 'Code Review Support', 'Code Understandability Analysis'], primary: ['pmd'], secondary: [] },
+    { classes: ['Testability Analysis', 'Risk Detection'], primary: ['lizard'], secondary: ['ck'] },
+  ] },
+  { ...m('Code Quality Auditing', 'Code Duplication', 'cpd'), rowsOnly: true, rows: [
+    { classes: ['Defect Propagation Risk Detection', 'Refactoring Identification', 'Code Quality Assessment', 'Test Maintenance Reduction', 'Refactoring Opportunity Detection', 'Risk-Based Testing Prioritization', 'Maintainability Testing'], primary: ['cpd'], secondary: [] },
+  ] },
+  { ...m('Static Code Analysis', 'Lint / Rule Violations', 'checkstyle', 'pmd', 'lizard', 'ck'), rowsOnly: true, rows: [
+    { classes: ['Rule Detection Test', 'Unused Variable Detection', 'Naming Convention Validation', 'Code Style Rule Validation', 'Rule Severity Classification', 'Multiple Violations Detection', 'False Positive Prevention', 'Custom Rule Validation', 'Configuration File Handling', 'CI/CD Integration Validation', 'Violation Reporting Validation'], primary: [], secondary: ['checkstyle', 'pmd'] },
+    { classes: ['Complexity Rule Detection'], primary: ['lizard'], secondary: ['ck'] },
+  ] },
+  { ...m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'spotbugs', 'owasp-depcheck'), rowsOnly: true, rows: [
+    { classes: ['Secure Coding Validation', 'Authentication & Authorization Weakness Detection', 'Security Vulnerability Detection'], primary: ['semgrep'], secondary: ['spotbugs'] },
+    { classes: ['Input Validation Testing', 'Data Flow Security Analysis', 'Compliance & Security Standard Validation'], primary: [], secondary: ['semgrep', 'spotbugs'] },
+    { classes: ['Dependency & Library Vulnerability Detection'], primary: ['owasp-depcheck'], secondary: [] },
+  ] },
+  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'license-maven-plugin', 'grype', 'owasp-depcheck', 'deps-dev', 'maven-versions'), rowsOnly: true, rows: [
+    { classes: ['License Compliance Testing'], primary: ['license-maven-plugin'], secondary: [] },
+    { classes: ['Supply Chain Security Analysis'], primary: [], secondary: ['grype', 'owasp-depcheck'] },
+    { classes: ['Dependency Health Monitoring'], primary: ['deps-dev'], secondary: [] },
+    { classes: ['Risk Prioritization'], primary: ['grype'], secondary: [] },
+    { classes: ['Continuous Dependency Monitoring'], primary: ['owasp-depcheck'], secondary: [] },
+    { classes: ['Vulnerability Dependency Detection'], primary: ['owasp-depcheck'], secondary: ['grype'] },
+    { classes: ['Outdated Dependency Detection'], primary: ['maven-versions'], secondary: ['deps-dev'] },
+  ] },
+  { ...m('Control Flow Testing', 'Statement Coverage', 'jacoco'), rowsOnly: true, rows: [
+    { classes: ['Unit Testing Support', 'Dead Code Detection', 'Test Completeness Evaluation', 'Basic Logic Validation', 'Code Execution Verification'], primary: ['jacoco'], secondary: [] },
+  ] },
+  { ...m('Control Flow Testing', 'Branch Coverage', 'jacoco'), rowsOnly: true, rows: [
+    { classes: ['Conditional Logic Testing', 'Control Flow Validation', 'Loop Condition Testing', 'Edge Case Detection', 'Logic Error Detection', 'Test Case Completeness', 'Decision Outcome Verification'], primary: ['jacoco'], secondary: [] },
+  ] },
+  { ...m('Mutation Testing', 'Mutation Score', 'pitest'), rowsOnly: true, rows: [
+    { classes: ['Fault Detection Capability', 'Test Coverage Quality Validation', 'Test Case Improvement Identification', 'Edge Case Detection', 'Regression Testing Validation', 'Code Logic Validation', 'Test Suite Effectiveness Evaluation'], primary: ['pitest'], secondary: [] },
+  ] },
+  { ...m('Data Flow Testing', 'All Definition Coverage', 'java-all-defs-uses'), rowsOnly: true, rows: [
+    { classes: ['Variable Definition Detection', 'Definition-Use Mapping', 'Coverage Measurement', 'Uncovered Definition Detection', 'Edge Case Handling', 'Reporting Validation'], primary: ['java-all-defs-uses'], secondary: [] },
+  ] },
+  { ...m('Data Flow Testing', 'All Uses Coverage', 'java-all-defs-uses'), rowsOnly: true, rows: [
+    { classes: ['Computational Use Detection (C-Use)', 'Predicate Use Detection (P-Use)', 'Definition-Use Pair Identification', 'All-Uses Coverage Verification', 'Partial Uses Coverage Detection', 'Multiple Definitions Handling', 'Cross-Function Use Detection', 'Unreachable Use Detection', 'Coverage Reporting Validation', 'Variable Use Detection'], primary: ['java-all-defs-uses'], secondary: [] },
+  ] },
+  { ...m('Development Process Analysis', 'Code Churn', 'git-churn'), rowsOnly: true, rows: [
+    { classes: ['Risk-Based Testing Prioritization', 'Regression Testing Focus', 'Defect Prediction', 'Test Case Maintenance Identification', 'Change Impact Analysis'], primary: ['git-churn'], secondary: [] },
+  ] },
+  { ...m('Code Quality', 'Technical Debt', 'pydriller'), rowsOnly: true, rows: [
+    { classes: ['Code Churn in Performance-Critical Paths'], primary: ['pydriller'], secondary: [] },
+  ] },
+  { ...m('Code Quality', 'Test Coverage', 'jacoco'), rowsOnly: true, rows: [
+    { classes: ['Performance Test Code Coverage'], primary: ['jacoco'], secondary: [] },
+  ] },
+  { ...m('Static Code Analysis', 'Secret Detection', 'detect-secrets', 'gitleaks'), rowsOnly: true, rows: [
+    { classes: ['Hardcoded Secret Scan', 'Pre-Commit Secret Prevention'], primary: [], secondary: ['detect-secrets', 'gitleaks'] },
+  ] },
+  { ...m('Security Testing', 'Secret Detection', 'detect-secrets', 'gitleaks'), rowsOnly: true, rows: [
+    { classes: ['Hardcoded Secret Detection', 'Pre-Commit Secret Prevention', 'Secrets in Git History'], primary: [], secondary: ['detect-secrets', 'gitleaks'] },
+  ] },
+  { ...m('Performance Testing', 'Static Analysis', 'lizard', 'semgrep-perf-static'), rowsOnly: true, rows: [
+    { classes: ['Complexity-Based Perf Risk'], primary: ['lizard'], secondary: [] },
+    { classes: ['Big-O Complexity Review', 'N+1 Query Pattern Detection', 'Memory Allocation Analysis', 'Thread-Safety Detection'], primary: ['semgrep-perf-static'], secondary: [] },
+  ] },
+  { ...m('Performance Testing', 'Dependency Analysis', 'java-perf-dependency'), rowsOnly: true, rows: [
+    { classes: ['Unused Dependency Detection', 'Circular Dependency Detection', 'Build Time Regression'], primary: ['java-perf-dependency'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'), rowsOnly: true, rows: [
+    { classes: ['PII in Codebase Detection'], primary: ['presidio'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'), rowsOnly: true, rows: [
+    { classes: ['PII in Log Statements'], primary: ['semgrep-pii'], secondary: [] },
+  ] },
 ];
 
 const MAPS: Record<Language, TechniqueTool[]> = { javascript: JS, typescript: TS, csharp: CS, python: PY, java: JV };

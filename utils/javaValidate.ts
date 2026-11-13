@@ -25,7 +25,7 @@ export const JAVA_COLS: JCol[] = ['8', '11', '16', '17', '21'];
 const ALL_Y = ['lizard', 'cpd', 'git-churn', 'pydriller', 'semgrep', 'gitleaks', 'detect-secrets', 'presidio', 'maven-checksum', 'checkstyle', 'pmd', 'owasp-depcheck', 'maven-versions', 'ck', 'java-perf-dependency', 'java-coverage-delta'];
 const OPT_8 = ['spotbugs', 'java-all-defs-uses']; // ⚠️ on Java 8, ✅ above
 const EXEC = ['jacoco', 'pitest']; // ❌ Java 8 (no execution container), ✅ 11+
-const EXTRA = ['semgrep-pii', 'semgrep-perf-static']; // seen in real runs, not in the matrix: checked when present, never required
+const EXTRA = ['semgrep-pii', 'semgrep-perf-static', 'license-maven-plugin', 'grype', 'deps-dev']; // seen in real runs / registered for Java on the platform (qa ae5ad4fd3), not in the matrix: checked when present, never required
 export const JAVA_TOOLS = [...ALL_Y, ...OPT_8, ...EXEC, ...EXTRA];
 
 export function level(tool: string, col: JCol): Lvl {
