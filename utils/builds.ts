@@ -23,7 +23,7 @@ export function loadBuilds(): Build[] {
     ? process.env.BRANCHES.split(',').map((s) => s.trim()).filter(Boolean)
     : cfg.branches ?? [];
   // a whole GitHub link "https://github.com/<owner>/<repo>/tree/<branch>" gives both the repo and the branch
-  const fromLink = (s: string) => /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/tree\/(.+?)\/?$/i.exec(s.trim());
+  const fromLink = (s: string) => /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/tree\/(.+?)\/?$/i.exec(s.trim().replace(/[?#].*$/, '')); // a copied link may end in ?utm_source=... : that is not part of the branch name
   const list = branches.map((b) => {
     const raw = typeof b === 'string' ? b : b.branch;
     const m = fromLink(raw);

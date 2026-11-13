@@ -24,14 +24,14 @@ test('missing tools carry their type and the primary/secondary verdict', () => {
   const { py } = build(); const row = (t: string) => py.tools!.find((r) => r.tool === t)!;
   assert.equal(row('flake8').verdict, 'covered'); assert.equal(row('flake8').kind, 'Secondary'); assert.match(row('flake8').why!, /pylint triggered/);
   assert.equal(row('coverage-py').verdict, 'bug'); assert.match(row('coverage-py').kind!, /^Primary/); assert.equal(row('pymcdc').kind, 'Primary');
-  assert.equal(row('detect-secrets').verdict, 'unmapped');
+  assert.equal(row('detect-secrets').verdict, 'bug'); assert.equal(row('detect-secrets').kind, 'Primary'); assert.equal(row('vulture').verdict, 'covered');
   assert.equal(row('pylint').verdict, 'ok');
 });
 test('the Teams card shows type, Bug? column, the totals line and the no-bug list; the bug list is unchanged by the display', () => {
   const { bd, py } = build(); const t = text(toolSummary(bd, 90, false));
   assert.match(t, /"Type"/); assert.match(t, /"Bug\?"/);
   assert.match(t, /Of the \d+ not triggered/);
-  assert.match(t, /Not triggered, no bug: flake8/);
+  assert.match(t, /Not triggered, no bug: .*flake8/);
   assert.match(t, /coverage-py \(Primary[^)]*primary for/);
   assert.equal(py.defects.filter((d) => d.observed === 'NOT_APPLICABLE').map((d) => d.tool).includes('flake8'), false);
 });

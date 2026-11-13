@@ -28,6 +28,8 @@ const CTX = 'qa-eks-ro';
 const clean = (s?: string) => (s || '').trim().replace(/^["']|["']$/g, '');
 const KUBECTL = () => clean(process.env.EKS_KUBECTL) || 'kubectl';
 const WIN = process.platform === 'win32';
+/** A write stream that never throws: on Windows an open / write can fail with "UNKNOWN: unknown error" (OneDrive or antivirus holding the file), and an unhandled stream error killed the whole test. */
+function safeStream(file: string, opts: { flags: string }): fs.WriteStream { const w = fs.createWriteStream(file, opts); w.on('error', () => { /* the log line is lost, the run goes on */ }); return w; }
 const SERVICE_RE = /(orchestrator|execution-control|runtime-api|cpu-worker|io-worker|scoring-worker|reconciliation-worker|runtime-reconciler|admission|control-plane)/i;
 
 export function redact(s: string): string {
@@ -122,10 +124,10 @@ export function startEksCollector(opts: { branchDir: string; runId: string; bran
     const planned = new Map<string, { tool?: string; runtime?: string; last?: string }>(); const scaledZero = new Set<string>();
     let waitFirst = ''; let waitLast = ''; let waitSample = ''; let lastProgress = Date.now(); let finding: RunPattern | null = null;
     let waitRepeats = 0; let netErrors = 0; let ctxOk = false; let nsInfo = { cell: [] as string[], exe: [] as string[], global: [] as string[] };
-    const servicesLog = fs.createWriteStream(path.join(dir, 'services.log'), { flags: 'a' });
-    const snapshotsLog = fs.createWriteStream(path.join(dir, 'snapshots.jsonl'), { flags: 'a' });
+    const servicesLog = safeStream(path.join(dir, 'services.log'), { flags: 'a' });
+    const snapshotsLog = safeStream(path.join(dir, 'snapshots.jsonl'), { flags: 'a' });
     const raws = new Map<string, fs.WriteStream>();
-    const rawFor = (svc: string) => { let w = raws.get(svc); if (!w) { w = fs.createWriteStream(path.join(rawDir, `${safeName(svc)}.log`), { flags: 'a' }); raws.set(svc, w); } return w; };
+    const rawFor = (svc: string) => { let w = raws.get(svc); if (!w) { w = safeStream(path.join(rawDir, `${safeName(svc)}.log`), { flags: 'a' }); raws.set(svc, w); } return w; };
     const short = opts.runId.split('-')[0];
 
     /** follow one pod's logs (all containers); reconnect from the last timestamp when the stream breaks */
@@ -222,7 +224,7 @@ export function startEksCollector(opts: { branchDir: string; runId: string; bran
           fs.writeFileSync(path.join(pd, 'pod.json'), redactJson(pod));
           rec.consoleFile = path.join('pods', safeName(name), 'console.log');
           kc(['describe', 'pod', name, '-n', ns], 20_000).then((d) => { if (d.code === 0) fs.writeFileSync(path.join(pd, 'describe.txt'), redact(d.out)); }).catch(() => {});
-          const out = fs.createWriteStream(path.join(pd, 'console.log'), { flags: 'a' });
+          const out = safeStream(path.join(pd, 'console.log'), { flags: 'a' });
           const r2 = rec;
           follow(ns, name, (line) => {
             if (/^(error:|Error from server|Unable to retrieve)/i.test(line) || /^container ".*" in pod .* is waiting to start/i.test(line)) { fs.appendFileSync(path.join(pd, 'kubectl-notes.txt'), line + '\n'); return; } // kubectl's own messages are not the tool's output

@@ -19,12 +19,14 @@ export interface RuleCtx {
 }
 const nn = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export interface ToolInfo { kind: string; metrics: string; verdict: 'ok' | 'bug' | 'covered' | 'unmapped'; why: string }
+export interface ToolInfo { kind: string; metrics: string; verdict: 'ok' | 'bug' | 'covered' | 'unmapped'; why: string; pair: string[]; pairRan: boolean }
 export interface RuleResult { mapped: Set<string>; needed: Map<string, string>; info: (tool: string, present: boolean) => ToolInfo }
 
 export function bugRule(c: RuleCtx): RuleResult {
   const real = (name: string): string | undefined => c.tools.find((t) => nn(t) === nn(name) || (c.alias[t] || []).map(nn).includes(nn(name)));
   const mapped = new Set<string>(); const needed = new Map<string, string[]>();
+  const pairs = new Map<string, Set<string>>(); // primary <-> secondary of the same metric row (the parts of a combined primary are not pairs)
+  const addPair = (a: string, b: string) => { if (a === b) return; let x = pairs.get(a); if (!x) { x = new Set(); pairs.set(a, x); } x.add(b); };
   const roles = new Map<string, { p: Set<string>; s: Set<string> }>(); const covered = new Map<string, string[]>();
   const role = (t: string) => { let r = roles.get(t); if (!r) { r = { p: new Set(), s: new Set() }; roles.set(t, r); } return r; };
   const cov = (t: string, note: string) => { const a = covered.get(t) || []; if (!a.includes(note)) a.push(note); covered.set(t, a); };
@@ -37,6 +39,7 @@ export function bugRule(c: RuleCtx): RuleResult {
     for (const it of items) {
       for (const n of it.parts) { const r = real(n); if (r) { mapped.add(r); role(r).p.add(m.technique); } }
       for (const n of it.sec) { const r = real(n); if (r) { mapped.add(r); role(r).s.add(m.technique); } }
+      for (const pn of it.parts) for (const sn of it.sec) { const pr = real(pn), sr = real(sn); if (pr && sr) { addPair(pr, sr); addPair(sr, pr); } }
       const active = it.parts.filter((n) => { const r = real(n); return !r || c.level(r) === 'Y'; });
       if (it.parts.length > 0 && active.length === 0) continue; // primary N/A by design or optional
       const primaryOk = active.length > 0 && active.every((n) => c.has(real(n) || n));
@@ -59,10 +62,11 @@ export function bugRule(c: RuleCtx): RuleResult {
     const r = roles.get(tool);
     const kind = r && r.p.size && r.s.size ? 'Primary + secondary' : r && r.p.size ? 'Primary' : r && r.s.size ? 'Secondary' : 'No metric';
     const metrics = r ? [r.p.size ? `primary for ${list(r.p)}` : '', r.s.size ? `secondary for ${list(r.s)}` : ''].filter(Boolean).join('; ') : '';
-    if (present) return { kind, metrics, verdict: 'ok', why: '' };
-    if (neededText.has(tool)) return { kind, metrics, verdict: 'bug', why: neededText.get(tool)! };
-    if (mapped.has(tool)) return { kind, metrics, verdict: 'covered', why: (covered.get(tool) || []).slice(0, 2).join('; ') };
-    return { kind, metrics, verdict: 'unmapped', why: 'in no metric, so there is no primary or secondary to cover it' };
+    const pair = [...(pairs.get(tool) || [])]; const pairRan = pair.some((x) => c.has(x));
+    if (present) return { kind, metrics, verdict: 'ok', why: '', pair, pairRan };
+    if (neededText.has(tool)) return { kind, metrics, verdict: 'bug', why: neededText.get(tool)!, pair, pairRan };
+    if (mapped.has(tool)) return { kind, metrics, verdict: 'covered', why: (covered.get(tool) || []).slice(0, 2).join('; '), pair, pairRan };
+    return { kind, metrics, verdict: 'unmapped', why: 'in no metric, so there is no primary or secondary to cover it', pair, pairRan };
   };
   return { mapped, needed: neededText, info };
 }

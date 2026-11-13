@@ -497,13 +497,52 @@ export class MergeFlowPage {
       }
       return null;
     });
+    // The screenshot is only evidence: it must never fail the step (a card that keeps animating made scrollIntoViewIfNeeded time out and stopped the whole branch).
     const el = handle.asElement();
-    if (el) {
-      await el.scrollIntoViewIfNeeded();
-      await el.screenshot({ path: file });
-    } else {
-      await this.page.screenshot({ path: file, fullPage: true });
+    try {
+      if (el) {
+        await el.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
+        await el.screenshot({ path: file, timeout: 15_000 });
+      } else {
+        await this.page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+      }
+    } catch (e) {
+      try { await this.page.screenshot({ path: file, fullPage: true, timeout: 15_000 }); }
+      catch { console.log(`  ⚠ the Execution Status screenshot could not be taken (${e instanceof Error ? e.message.split('\n')[0] : e}) — continuing without it`); }
     }
+  }
+
+  /** This run's status from the runs API (the same call the app makes), lower-case; null when it can not be read. */
+  private async apiRunStatus(): Promise<string | null> {
+    const runId = /runId=([\w-]+)/.exec(this.page.url())?.[1];
+    if (!runId || !this.runsUrl) return null;
+    try {
+      const body = await this.page.evaluate(async (u) => (await fetch(u, { credentials: 'include' })).json(), this.runsUrl);
+      let hit: any = null;
+      const walk = (x: any) => { if (hit) return; if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === 'object') { if (x.run_id === runId) hit = x; else Object.values(x).forEach(walk); } };
+      walk(body);
+      return hit ? String(hit.status || hit.phase || '').toLowerCase() : null;
+    } catch { return null; }
+  }
+
+  /**
+   * The run has ended (the runs API says so, or the header spinner stopped) but the Execution Status card shows no tick: reload the page and look again
+   * for a minute, up to EXEC_RELOAD_ROUNDS times (default 3, EXEC_RELOAD_WAIT_SEC default 60). Returns true when the tick / "Execution finished" shows up.
+   */
+  private async reloadForTick(why: string): Promise<boolean> {
+    const rounds = Number(process.env.EXEC_RELOAD_ROUNDS) || 3; const waitSec = Number(process.env.EXEC_RELOAD_WAIT_SEC) || 60;
+    for (let i = 1; i <= rounds; i++) {
+      console.log(`  ↻ ${why}, but the Execution Status card shows no tick — reloading the page and checking for ${waitSec}s (try ${i}/${rounds})`);
+      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+      const until = Date.now() + waitSec * 1000;
+      while (Date.now() < until) {
+        await this.page.waitForTimeout(5000);
+        const st = await this.executionState().catch(() => null);
+        if (st?.done || (await this.page.getByText(/Execution finished|Run complete/i).first().isVisible().catch(() => false))) return true;
+        if (st?.failed) return false;
+      }
+    }
+    return false;
   }
 
   async waitForRunToFinish(abortIf?: () => string | null | undefined) {
@@ -511,7 +550,7 @@ export class MergeFlowPage {
     const startedAt = Date.now();
     const limitMin = Number(process.env.RUN_TIMEOUT_MIN || 60);
     const deadline = startedAt + limitMin * 60_000;
-    let check = 0; let stopped = 0;
+    let check = 0;
     // Check every 30 s; stop as soon as it is done (already-analysed commits are done at once).
     while (Date.now() < deadline) {
       check++;
@@ -519,17 +558,26 @@ export class MergeFlowPage {
       const stuckWhy = abortIf?.(); // e.g. the QA EKS collector saw a RUNTIME_UNAVAILABLE loop: waiting longer cannot help
       if (stuckWhy) throw new Error(`ENVIRONMENT: ${stuckWhy}`);
       const st: Awaited<ReturnType<MergeFlowPage['executionState']>> = await this.executionState().catch(() => ({ found: false, done: false, failed: false }));
-      if (st.done || (await doneText.isVisible().catch(() => false))) {
-        console.log(`  ✅ execution PASSED (finished) after ${Math.round((Date.now() - startedAt) / 1000)}s`);
-        return;
-      }
+      const uiDone = st.done || (await doneText.isVisible().catch(() => false));
       if (st.failed) throw new Error('Run ended in a failed state (Execution Status card shows an error icon).');
       const elapsed = Math.round((Date.now() - startedAt) / 1000);
-      // A run that ends with failed tasks gets no green tick. When the header spinner is gone for 3 checks in a row (90 s), the run has ended anyway → carry on.
-      stopped = st.found && !st.spinning && elapsed >= 60 ? stopped + 1 : 0;
-      if (stopped >= 3) {
-        console.log(`  ⚠ execution ENDED without the green tick (header icon: ${st.icons || 'none'}) after ${elapsed}s — the run most likely has failed tasks; continuing with the results`);
+      // Move on only when BOTH say the run is over: the runs API (when it can be read) and the Execution Status card.
+      const apiStatus = await this.apiRunStatus();
+      const apiDone = apiStatus === null || /^(completed|passed|succeeded|success|finished|failed|failure|error|errored|cancelled|canceled|aborted|timed_out|timeout)$/.test(apiStatus); // any END state counts (a run with failed tasks ends as "failed"); only running / pending / queued keep waiting
+      if (uiDone && apiDone) {
+        console.log(`  ✅ execution ${apiStatus && /^(failed|failure|error|errored|cancelled|canceled|aborted|timed_out|timeout)$/.test(apiStatus) ? 'ENDED (runs API: ' + apiStatus + ', some tasks failed)' : 'PASSED (finished)'} after ${elapsed}s (card: finished, runs API: ${apiStatus ?? 'not readable'})`);
         return;
+      }
+      if (uiDone && !apiDone) console.log(`  ⏳ the card shows finished but the runs API says "${apiStatus}" — waiting for both`);
+      // Runs API says done, the card has stopped spinning but shows no tick: reload and look again. A card that is STILL SPINNING means the run is not over: keep waiting.
+      const apiSaysDone = apiDone; // (also true when the API can not be read: then the card alone decides)
+      if (apiSaysDone && st.found && !st.spinning && elapsed >= 60) {
+        if (await this.reloadForTick(`the runs API says "${apiStatus ?? "not readable"}" and the spinner stopped`)) { console.log(`  ✅ execution PASSED (finished) after ${Math.round((Date.now() - startedAt) / 1000)}s (tick shown after a page reload)`); return; }
+        const st2 = await this.executionState().catch(() => null);
+        if (st2 && !st2.spinning) { console.log(`  ⚠ runs API "${apiStatus}" and the card stopped spinning but shows no tick (header icon: ${st2.icons || 'none'}) — both say the run has ended; continuing with the results`); return; }
+        console.log('  ⏳ the runs API says completed but the card is still spinning — the run is not over, waiting');
+      } else if (apiSaysDone && st.spinning) {
+        console.log(`  ⏳ the runs API says "${apiStatus}" but the card is still spinning — waiting for both`);
       }
       console.log(`  ⏳ check #${check} @ ${elapsed}s — not finished yet${st.found ? ` (header icon: ${st.icons || 'none'}${st.spinning ? ', spinning' : ', not spinning'})` : ' (Execution Status card not found yet)'}`);
       await this.page.waitForTimeout(30_000);
@@ -729,7 +777,15 @@ export class MergeFlowPage {
       }
       pending = still;
     }
-    if (pending.length) console.log(`  ⚠ ${pending.length} gate(s) never finished loading; their values are saved as read (some may be empty)`);
+    if (pending.length) {
+      // still not loaded after every reload round: mark the gate values as failed and carry on with the next step
+      console.log(`  ⚠ ${pending.length} gate(s) never finished loading after ${rounds} reload round(s) — marked LOAD FAILED, continuing`);
+      for (const r of pending) {
+        const g = uiRows[r.idx] as any; g.loadFailed = true;
+        g.rows = (g.rows?.length ? g.rows : [{ classification: '(gate did not load)', execution: '—', coverage: '' }]).map((x: Record<string, string>) => ({ ...x, value: 'LOAD FAILED', result: 'LOAD FAILED' }));
+      }
+      fs.writeFileSync(`${destDir}/../ui-values-failed.json`, JSON.stringify(pending.map((r) => ({ category: r.cat, technique: r.tech, sub: r.sub })), null, 2));
+    }
     fs.writeFileSync(`${destDir}/../ui-values.json`, JSON.stringify(uiRows, null, 2));
     console.log(`  UI score: ${shots ? `${saved.length} gate screenshots + ` : `${saved.length} gates read (no screenshots) → `}ui-values.json (${uiRows.reduce((a, g) => a + g.rows.length, 0)} classification rows read from the page)${shots ? ` saved under ${destDir}` : ''}`);
     return saved;
@@ -747,13 +803,31 @@ export class MergeFlowPage {
       if (waited % 90 === 0) { console.log(`  ⏳ taxonomy download not ready after ${waited}s — reloading the page`); await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {}); }
     }
     if (waited) console.log(`  taxonomy download button ready after ~${waited}s`);
-    await button.scrollIntoViewIfNeeded();
-    const downloadPromise = this.page.waitForEvent('download', { timeout: 60_000 });
-    await button.click();
-    const download = await downloadPromise;
-    const savePath = `${destDir}/${download.suggestedFilename()}`;
-    await download.saveAs(savePath);
-    return savePath;
+    // The platform sometimes hands out a half-written or non-zip file while the report is still being built. Check the file really is a zip; if not, wait, reload and download again.
+    const tries = Number(process.env.TAXONOMY_DOWNLOAD_TRIES) || 4; const retryWaitSec = Number(process.env.TAXONOMY_RETRY_WAIT_SEC) || 60;
+    let lastWhy = '';
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      if (attempt > 1) {
+        console.log(`  ↻ taxonomy download was not a valid zip (${lastWhy}) — waiting ${retryWaitSec}s, reloading and downloading again (try ${attempt}/${tries})`);
+        await this.page.waitForTimeout(retryWaitSec * 1000);
+        await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+        const until = Date.now() + 3 * 60_000;
+        while (Date.now() < until && !((await button.isVisible().catch(() => false)) && (await button.isEnabled().catch(() => false)))) await this.page.waitForTimeout(5000);
+      }
+      await button.scrollIntoViewIfNeeded();
+      const downloadPromise = this.page.waitForEvent('download', { timeout: 60_000 });
+      await button.click();
+      const download = await downloadPromise;
+      const savePath = `${destDir}/${download.suggestedFilename()}`;
+      await download.saveAs(savePath);
+      const fs = await import('fs');
+      const buf = fs.readFileSync(savePath);
+      const isZip = buf.length > 22 && buf[0] === 0x50 && buf[1] === 0x4b && buf.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+      if (isZip || !/\.zip$/i.test(savePath)) return savePath;
+      lastWhy = `${buf.length} bytes, starts with "${buf.subarray(0, 60).toString('utf8').replace(/\s+/g, ' ')}"`;
+      try { fs.renameSync(savePath, `${savePath}.bad${attempt}`); } catch { /* keep going */ }
+    }
+    throw new Error(`The taxonomy report download was not a valid zip after ${tries} tries (${lastWhy}).`);
   }
 
   /** Verified live 29 Sep: sidebar "Sign out" button → confirm dialog (Cancel / Sign out). */

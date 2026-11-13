@@ -20,7 +20,7 @@ import { bugRule as commonBugRule, type RuleResult } from './bugRule';
 export type PyStatus = 'OK' | 'CLEAN' | 'FALSE_EMPTY' | 'EMPTY_UNKNOWN' | 'NO_DATA' | 'FAILED';
 
 const BASE = ['radon', 'lizard', 'jscpd-py', 'git-churn', 'pydriller', 'flake8', 'safety', 'semgrep', 'semgrep-perf-static', 'presidio', 'semgrep-pii', 'gitleaks', 'detect-secrets'];
-const FROM38 = ['pip-audit', 'pip-outdated', 'py-all-defs-uses', 'py-coverage-delta'];
+const FROM38 = ['pip-audit', 'pip-outdated', 'py-all-defs-uses', 'py-coverage-delta', 'vulture'];
 const PARSER38_312 = ['pylint', 'bandit', 'complexipy', 'python-perf-dependency'];
 const EXEC39 = ['coverage-py', 'crosshair', 'cosmic-ray'];
 const RETIRED = ['testmon'];

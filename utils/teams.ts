@@ -95,6 +95,7 @@ const card = (body: unknown[], url?: string, evidence?: string, after: unknown[]
     contentType: 'application/vnd.microsoft.card.adaptive',
     content: {
       $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+      msteams: { width: 'Full' }, // use the full width of the Teams message so the table columns are readable
       type: 'AdaptiveCard', version: JSON.stringify([body, after]).includes('"type":"Table"') ? '1.5' : '1.4', // the Tool Trigger Log table needs 1.5
       // buttons sit inside the body (ActionSet) so the tool summary can come AFTER them
       body: [

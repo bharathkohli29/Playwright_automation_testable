@@ -408,7 +408,7 @@ http.createServer(async (req, res) => {
       if (!person) return json(res, 400, { error: 'Please type your name.' });
       // also accepts the page title copied from GitHub ("GitHub - owner/repo at BRANCH"): it is turned into the branch link
       const text = String(b.links || '').replace(/GitHub\s*[-–—]\s*([\w.-]+\/[\w.-]+)\s+at\s+([^\s,]+)/g, (m, repo, br) => ` https://github.com/${repo}/tree/${br} `);
-      const links = text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+      const links = text.split(/[\s,]+/).map((s) => s.trim().replace(/[?#].*$/, '')).filter(Boolean); // drop ?utm_source=... from copied links
       if (!links.length) return json(res, 400, { error: 'Paste at least one GitHub branch link.' });
       const added = [], skipped = [];
       for (const l of links) {

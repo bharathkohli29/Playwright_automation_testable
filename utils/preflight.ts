@@ -175,5 +175,12 @@ export async function preflightAtStart(): Promise<boolean> {
 
 if (require.main === module) {
   const gate = process.argv.includes('--gate');
-  runPreflight().then((cs) => { printPreflight(cs); process.exit(gate ? (modeOf() === 'gate' && cs.some((c) => c.level !== 'OK') ? 1 : 0) : cs.some((c) => c.level === 'FAIL') ? 1 : 0); });
+  runPreflight().then((cs) => {
+    printPreflight(cs);
+    const code = gate ? (modeOf() === 'gate' && cs.some((c) => c.level !== 'OK') ? 1 : 0) : cs.some((c) => c.level === 'FAIL') ? 1 : 0;
+    // Do NOT call process.exit() straight away: on Windows (Node 22) it can hit "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) ... async.c" while a child process / socket is still closing,
+    // and the crash code (3221226505) stops the whole start chain even when every check passed. Set the code, let the handles close, and only force the exit after a safe wait.
+    process.exitCode = code;
+    setTimeout(() => process.exit(code), 20_000).unref();
+  });
 }

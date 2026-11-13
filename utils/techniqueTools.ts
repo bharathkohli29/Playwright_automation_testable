@@ -120,34 +120,48 @@ const CS: TechniqueTool[] = [
 ];
 
 const PY: TechniqueTool[] = [
-  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'mccabe'), rowsOnly: true, rows: [
-    { classes: ['Static Analysis Metric', 'Logic Coverage Metric'], primary: ['crosshair'], secondary: ['mccabe'] },
-    { classes: ['Decision Coverage'], primary: ['coverage-py'], secondary: ['mccabe'] },
-    { classes: ['Condition Coverage'], primary: ['pymcdc'], secondary: ['mccabe'] },
-    { classes: ['Maintainability Analysis'], primary: ['radon', 'lizard'], secondary: ['mccabe'] },
-    { classes: ['Test Prioritization'], primary: ['testmon'], secondary: ['mccabe'] } ] },
-  m('Readability / Maintainability', 'Cognitive Complexity', 'complexipy', 'cognitive-ast'), // complexipy replaced the legacy cognitive-ast
-  m('Code Quality Auditing', 'Code Duplication', 'jscpd-py', 'copydetect'),
-  m('Static Code Analysis', 'Lint / Rule Violations', 'pylint', 'flake8'),
+  // Python mapping from the platform's own tool bindings (technique_tool / wb0026, 12 Nov 2026). Roles come from the platform catalog: the PRIMARY-role tools of a row are its
+  // primary (several = combined, every one must trigger), its SECONDARY-role tools are the secondary. Retired / replaced tools (testmon, mccabe, cognitive-ast, copydetect,
+  // mutmut, pyflakes, pytest-cov, coveragepy, coverage_paths, all_uses) are no longer mapped.
+  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'radon', 'lizard'), rowsOnly: true, rows: [
+    { classes: ['Static Analysis Metric', 'Maintainability Analysis', 'Test Prioritization'], primary: ['radon'], secondary: ['lizard'] },
+    { classes: ['Decision Coverage'], primary: ['coverage-py'], secondary: [] },
+    { classes: ['Condition Coverage'], primary: ['pymcdc'], secondary: [] } ] },
+  { ...m('Readability / Maintainability', 'Cognitive Complexity', 'complexipy'), rowsOnly: true, rows: [
+    { classes: ['Refactoring Guidance', 'Maintainability Evaluation', 'Code Review Support', 'Code Understandability Analysis'], primary: ['complexipy'], secondary: [] },
+    { classes: ['Testability Analysis', 'Risk Detection'], primary: ['radon'], secondary: ['lizard'] } ] },
+  m('Code Quality Auditing', 'Code Duplication', 'jscpd-py'),
+  { ...m('Static Code Analysis', 'Lint / Rule Violations', 'pylint', 'flake8'), rows: [
+    { classes: ['Unused Variable Detection'], primary: ['pylint'], secondary: ['vulture'] },
+    { classes: ['Complexity Rule Detection'], primary: ['radon'], secondary: ['lizard'] } ] },
   { ...m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'bandit'), rowsOnly: true, rows: [
-    { classes: ['Secure Coding Validation', 'Dependency & Library Vulnerability Detection'], primary: ['semgrep', 'bandit'], secondary: ['semgrep'] },
-    { classes: ['Input Validation Testing', 'Data Flow Security Analysis', 'Authentication & Authorization Weakness Detection', 'Compliance & Security Standard Validation', 'Security Vulnerability Detection'], primary: ['semgrep', 'bandit'], secondary: ['bandit'] } ] },
-  m('Security White-box Testing', 'Dependency Risk (SCA)', 'pip-audit', 'safety'),
-  m('Control Flow Testing', 'Statement Coverage', 'coverage-py', 'pytest-cov'),
-  m('Control Flow Testing', 'Branch Coverage', 'coverage-py', 'pytest-cov --cov-branch'),
-  { ...m('Control Flow Testing', 'Path Coverage', 'coverage-py', 'coverage_paths'), rowsOnly: true, rows: [
-    { classes: ['Path Execution Tracking', 'Complete Coverage Path Verification', 'Partial Path Coverage Detection', 'Path Detection Testing'], primary: ['coverage-py'], secondary: ['coverage.py + ast paths'] },
-    { classes: ['Nested Condition Path Testing', 'Loop Path Detection', 'Unreachable Path Detection', 'Exception Path Handling', 'Multi-Function Path Tracking', 'CI/CD Integration Test'], primary: ['coverage-py'], secondary: ['coverage_paths'] } ] },
-  m('Mutation Testing', 'Mutation Score', 'cosmic-ray', 'mutmut'),
-  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'py-coverage-delta', 'coveragepy'),
-  { ...m('Data Flow Testing', 'All Definition Coverage', 'py-all-defs-uses', 'pyflakes'), rows: [
-    { classes: ['Variable Definition Detection', 'Coverage Measurement'], primary: ['py-all-defs-uses'], secondary: ['pyflakes'] },
-    { classes: ['Definition-Use Mapping'], primary: ['coverage-py'], secondary: ['pyflakes'] },
-    { classes: ['Uncovered Definition Detection'], primary: ['pylint'], secondary: ['pyflakes'] },
-    { classes: ['Edge Case Handling'], primary: ['crosshair'], secondary: ['pyflakes'] },
-    { classes: ['Reporting Validation'], primary: ['pydriller'], secondary: ['pyflakes'] } ] },
-  m('Data Flow Testing', 'All Uses Coverage', 'py-all-defs-uses', 'all_uses'),
-  m('Development Process Analysis', 'Code Churn', 'pydriller', 'git_churn'),
+    { classes: ['Secure Coding Validation', 'Input Validation Testing', 'Data Flow Security Analysis', 'Authentication & Authorization Weakness Detection', 'Compliance & Security Standard Validation', 'Security Vulnerability Detection'], primary: ['semgrep', 'bandit'], secondary: [] } ] }, // bandit + semgrep are both PRIMARY on the platform
+  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'pip-audit', 'safety'), rows: [
+    { classes: ['Outdated Dependency Detection'], primary: ['pip-outdated'], secondary: ['pip-audit'] } ] },
+  m('Control Flow Testing', 'Statement Coverage', 'coverage-py'),
+  { ...m('Control Flow Testing', 'Branch Coverage', 'coverage-py'), rows: [
+    { classes: ['Conditional Logic Testing'], primary: ['coverage-py', 'pymcdc'], secondary: [] } ] },
+  { ...m('Control Flow Testing', 'Path Coverage', 'crosshair'), rows: [
+    { classes: ['Path Execution Tracking'], primary: ['crosshair', 'coverage-py'], secondary: [] } ] },
+  m('Mutation Testing', 'Mutation Score', 'cosmic-ray'),
+  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'py-coverage-delta'),
+  m('Data Flow Testing', 'All Definition Coverage', 'py-all-defs-uses'),
+  m('Data Flow Testing', 'All Uses Coverage', 'py-all-defs-uses'),
+  { ...m('Development Process Analysis', 'Code Churn', 'git-churn', 'pydriller'), rows: [
+    { classes: ['Change Impact Analysis'], primary: [], secondary: ['pydriller'] } ] },
+  // groups whose tools are SECONDARY-role on the platform; mapped here as the primary (user's choice, 13 Nov 2026)
+  { ...m('Security Testing', 'Secret Detection', 'gitleaks', 'detect-secrets'), rowsOnly: true, rows: [
+    { classes: ['Secrets in Git History'], primary: ['gitleaks'], secondary: [] },
+    { classes: ['Hardcoded Secret Scan'], primary: ['detect-secrets', 'gitleaks'], secondary: [] },
+    { classes: ['Pre-Commit Secret Prevention'], primary: ['detect-secrets'], secondary: [] } ] },
+  { ...m('Performance Testing', 'Static Analysis', 'semgrep-perf-static'), rowsOnly: true, rows: [
+    { classes: ['Complexity-Based Perf Risk', 'Big-O Complexity Review', 'N+1 Query Pattern Detection', 'Memory Allocation Analysis', 'Thread-Safety Detection'], primary: ['semgrep-perf-static'], secondary: [] } ] },
+  { ...m('Performance Testing', 'Dependency Analysis', 'python-perf-dependency'), rowsOnly: true, rows: [
+    { classes: ['Unused Dependency Detection', 'Circular Dependency Detection', 'Build Time Regression'], primary: ['python-perf-dependency'], secondary: [] } ] },
+  { ...m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'), rowsOnly: true, rows: [
+    { classes: ['PII in Codebase Detection'], primary: ['presidio'], secondary: [] } ] },
+  { ...m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'), rowsOnly: true, rows: [
+    { classes: ['PII in Log Statements'], primary: ['semgrep-pii'], secondary: [] } ] },
 ];
 
 const JV: TechniqueTool[] = [
