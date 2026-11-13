@@ -27,7 +27,7 @@ const OPT_LT16 = ['jscpd-ts', 'ts-eslint-sonarjs', 'ts-eslint-security']; // ⚠
 const NO_LT16_OPT_16 = ['biome', 'oxlint', 'dependency-cruiser-ts', 'knip']; // ❌ 12/14 · ⚠️ 16
 const EXEC = ['vitest-coverage', 'stryker-ts', 'fast-check', 'opentelemetry-spans', 'ts-all-defs-uses', 'ts-path-coverage', 'ts-coverage-delta']; // ✅ only 20/21/22
 const FULL_ONLY = ['cve-lite', 'grype', 'pnpm-audit', 'github-vitality', 'dependabot-advisories', 'ort', 'typescript-perf-dependency']; // in the 26-tool inventory: all must run on 20/21/22, not stated for other Node versions
-const EXTRA = ['semgrep', 'semgrep-pii', 'semgrep-perf-static', 'nyc-mocha']; // seen in real runs, not in the TS matrix: checked when present, never required
+const EXTRA = ['semgrep', 'semgrep-pii', 'semgrep-perf-static', 'nyc-mocha', 'cve-lite-cli', 'license-checker-ts', 'ts-condition-probe', 'tsc']; // seen in real runs / registered on the platform (qa ae5ad4fd3), not in the TS matrix: checked when present, never required
 export const TS_TOOLS = [...ALL_Y, ...OPT_LT16, ...NO_LT16_OPT_16, ...EXEC, ...FULL_ONLY, ...EXTRA];
 const hasExec = (n: number) => n >= 20 && n <= 22;
 

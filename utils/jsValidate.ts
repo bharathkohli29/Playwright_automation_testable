@@ -24,7 +24,9 @@ const ALL_Y = ['lizard', 'git-churn', 'pydriller', 'semgrep', 'gitleaks', 'detec
 const OPT_LT16 = ['jscpd-js', 'eslint', 'eslint-sonarjs', 'eslint-security', 'madge', 'javascript-perf-dependency', 'js-all-defs-uses'];
 const NO_LT16_OPT_16 = ['stryker-js', 'js-path-coverage', 'dependency-cruiser'];
 const NO_LT16 = ['cyclonedx-npm'];
-export const JS_TOOLS = [...ALL_Y, ...OPT_LT16, ...NO_LT16_OPT_16, ...NO_LT16];
+// registered for JavaScript on the platform (qa ae5ad4fd3) and mapped to rows, but with no Node-version rule in the matrix: checked when present, never required (level OPT)
+const EXTRA = ['semgrep-perf-static', 'semgrep-pii', 'js-test-assertions', 'js-boundary-decisions', 'libyear'];
+export const JS_TOOLS = [...ALL_Y, ...OPT_LT16, ...NO_LT16_OPT_16, ...NO_LT16, ...EXTRA];
 
 export function level(tool: string, node: number): Lvl {
   if (ALL_Y.includes(tool)) return 'Y';

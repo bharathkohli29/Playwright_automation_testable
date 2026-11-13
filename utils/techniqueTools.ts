@@ -15,91 +15,163 @@ const m = (testingType: string, technique: string, ...tools: string[]): Techniqu
 const g = (testingType: string, technique: string, ...tools: string[]): TechniqueTool => ({ testingType, technique, tools, guess: true });
 
 const JS: TechniqueTool[] = [
-  m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'debtmap'),
-  m('Readability / Maintainability', 'Cognitive Complexity', 'eslint-sonarjs', 'cccc'),
-  m('Code Quality Auditing', 'Code Duplication', 'jscpd-js', 'dolos'),
-  { ...m('Static Code Analysis', 'Lint / Rule Violations', 'eslint', 'oxlint'), rows: [{ classes: ['Custom Rule Validation'], primary: [], secondary: ['oxlint'] }] },
-  m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'eslint-security', 'opengrep'),
-  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'npm-audit', 'trivy'), rowsOnly: true, rows: [
-    { classes: ['Transitive Dependency Analysis'], primary: ['npm-ls'], secondary: ['trivy'] },
-    { classes: ['License Compliance Testing'], primary: [], secondary: ['trivy'] },
-    { classes: ['Supply Chain Security Analysis', 'Dependency Health Monitoring', 'Risk Prioritization', 'Continuous Dependency Monitoring', 'Vulnerability Dependency Detection'], primary: ['npm-audit', 'npm-ls'], secondary: ['trivy'] }, // npm audit + npm ls: both folders, shown together
-    { classes: ['Outdated Dependency Detection'], primary: [], secondary: ['trivy'] },
+  // JavaScript mapping from JavaScript_Primary_Secondary_Tools_by_Technique.md, platform qa ae5ad4fd3 (13 Nov 2026): primary / secondary per classification as the platform code reads them. Several primaries = combined (all must run); primary [] = only the listed co-providers are checked.
+  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'nyc-mocha'), rowsOnly: true, rows: [
+    { classes: ['Static Analysis Metric', 'Maintainability Analysis', 'Test Prioritization'], primary: ['lizard'], secondary: [] },
+    { classes: ['Decision Coverage', 'Logic Coverage Metric'], primary: ['nyc-mocha'], secondary: [] },
   ] },
-  m('Control Flow Testing', 'Statement Coverage', 'nyc-mocha', 'monocart-coverage-reports'),
-  m('Control Flow Testing', 'Branch Coverage', 'nyc-mocha', 'monocart-coverage-reports'),
-  { ...m('Control Flow Testing', 'Path Coverage', 'js-path-coverage', 'monocart-coverage-reports'), rowsOnly: true, rows: [
-    { classes: ['Path Execution Tracking', 'Complete Coverage Path Verification', 'Partial Path Coverage Detection', 'Nested Condition Path Testing'], primary: ['js-path-coverage'], secondary: ['monocart-coverage-reports'] }, // nyc
-    { classes: ['Loop Path Detection', 'Unreachable Path Detection', 'Exception Path Handling'], primary: [], secondary: ['monocart-coverage-reports'] },
-    { classes: ['Multi-Function Path Tracking', 'CI/CD Integration Test', 'Path Detection Testing'], primary: ['js-all-defs-uses'], secondary: ['monocart-coverage-reports'] }, // ESLint (eslint-scope) + nyc
+  { ...m('Readability / Maintainability', 'Cognitive Complexity', 'eslint-sonarjs', 'lizard'), rowsOnly: true, rows: [
+    { classes: ['Maintainability Evaluation', 'Refactoring Guidance', 'Code Review Support', 'Code Understandability Analysis'], primary: ['eslint-sonarjs'], secondary: [] },
+    { classes: ['Testability Analysis', 'Risk Detection'], primary: ['lizard'], secondary: [] },
   ] },
-  m('Mutation Testing', 'Mutation Score', 'stryker-js', 'gutcheck'),
-  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'coverage_delta', 'monocart-coverage-reports'),
+  { ...m('Code Quality Auditing', 'Code Duplication', 'jscpd-js'), rowsOnly: true, rows: [
+    { classes: ['Defect Propagation Risk Detection', 'Refactoring Identification', 'Code Quality Assessment', 'Test Maintenance Reduction', 'Refactoring Opportunity Detection', 'Risk-Based Testing Prioritization', 'Maintainability Testing'], primary: ['jscpd-js'], secondary: [] },
+  ] },
+  { ...m('Static Code Analysis', 'Lint / Rule Violations', 'eslint', 'lizard'), rowsOnly: true, rows: [
+    { classes: ['Rule Detection Test', 'Unused Variable Detection', 'Naming Convention Validation', 'Code Style Rule Validation', 'Rule Severity Classification', 'Multiple Violations Detection', 'False Positive Prevention', 'Custom Rule Validation', 'Configuration File Handling', 'CI/CD Integration Validation', 'Violation Reporting Validation'], primary: ['eslint'], secondary: [] },
+    { classes: ['Complexity Rule Detection'], primary: ['lizard'], secondary: [] },
+  ] },
+  { ...m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'eslint-security', 'npm-audit'), rowsOnly: true, rows: [
+    { classes: ['Secure Coding Validation', 'Authentication & Authorization Weakness Detection', 'Security Vulnerability Detection'], primary: ['semgrep'], secondary: [] },
+    { classes: ['Input Validation Testing', 'Data Flow Security Analysis', 'Compliance & Security Standard Validation'], primary: [], secondary: ['eslint-security', 'semgrep'] },
+    { classes: ['Dependency & Library Vulnerability Detection'], primary: ['npm-audit'], secondary: [] },
+  ] },
+  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'npm-ls', 'npm-audit', 'license-checker', 'osv-scanner', 'npm-view', 'npm-outdated'), rowsOnly: true, rows: [
+    { classes: ['Transitive Dependency Analysis'], primary: ['npm-ls'], secondary: ['npm-audit'] },
+    { classes: ['License Compliance Testing'], primary: ['license-checker'], secondary: [] },
+    { classes: ['Supply Chain Security Analysis'], primary: [], secondary: ['npm-audit', 'osv-scanner'] },
+    { classes: ['Dependency Health Monitoring'], primary: ['npm-view'], secondary: [] },
+    { classes: ['Risk Prioritization', 'Continuous Dependency Monitoring', 'Vulnerability Dependency Detection'], primary: ['npm-audit'], secondary: [] },
+    { classes: ['Outdated Dependency Detection'], primary: ['npm-outdated'], secondary: [] },
+  ] },
+  { ...m('Control Flow Testing', 'Statement Coverage', 'nyc-mocha', 'js-test-assertions'), rowsOnly: true, rows: [
+    { classes: ['Unit Testing Support', 'Dead Code Detection', 'Test Completeness Evaluation', 'Code Execution Verification'], primary: ['nyc-mocha'], secondary: [] },
+    { classes: ['Basic Logic Validation'], primary: ['nyc-mocha'], secondary: ['js-test-assertions'] },
+  ] },
+  { ...m('Mutation Testing', 'Mutation Score', 'stryker-js'), rowsOnly: true, rows: [
+    { classes: ['Fault Detection Capability', 'Test Coverage Quality Validation', 'Test Case Improvement Identification', 'Edge Case Detection', 'Regression Testing Validation', 'Code Logic Validation', 'Test Suite Effectiveness Evaluation'], primary: ['stryker-js'], secondary: [] },
+  ] },
   { ...m('Data Flow Testing', 'All Definition Coverage', 'js-all-defs-uses'), rowsOnly: true, rows: [
-    { classes: ['Variable Definition Detection'], primary: ['js-all-defs-uses'], secondary: ['gutcheck'] },
-    { classes: ['Definition-Use Mapping'], primary: ['js-all-defs-uses'], secondary: ['codeql'] },
-    { classes: ['Coverage Measurement'], primary: ['js-all-defs-uses'], secondary: ['gutcheck'] },
-    { classes: ['Uncovered Definition Detection'], primary: ['js-all-defs-uses'], secondary: ['knip'] },
-    { classes: ['Edge Case Handling'], primary: ['js-all-defs-uses'], secondary: ['opengrep'] },
-    { classes: ['Reporting Validation'], primary: ['js-all-defs-uses'], secondary: ['knip'] },
+    { classes: ['Variable Definition Detection', 'Definition-Use Mapping', 'Coverage Measurement', 'Uncovered Definition Detection', 'Edge Case Handling', 'Reporting Validation'], primary: ['js-all-defs-uses'], secondary: [] },
   ] },
   { ...m('Data Flow Testing', 'All Uses Coverage', 'js-all-defs-uses'), rowsOnly: true, rows: [
-    { classes: ['Computational Use Detection (C-Use)', 'Predicate Use Detection (P-Use)'], primary: ['js-all-defs-uses'], secondary: ['opengrep'] },
-    { classes: ['Definition-Use Pair Identification', 'All-Uses Coverage Verification', 'Partial Uses Coverage Detection', 'Multiple Definitions Handling', 'Cross-Function Use Detection', 'Unreachable Use Detection', 'Coverage Reporting Validation', 'Variable Use Detection'], primary: ['js-all-defs-uses'], secondary: ['knip'] },
+    { classes: ['Computational Use Detection (C-Use)', 'Predicate Use Detection (P-Use)', 'Definition-Use Pair Identification', 'All-Uses Coverage Verification', 'Partial Uses Coverage Detection', 'Multiple Definitions Handling', 'Cross-Function Use Detection', 'Unreachable Use Detection', 'Coverage Reporting Validation', 'Variable Use Detection'], primary: ['js-all-defs-uses'], secondary: [] },
   ] },
-  m('Development Process Analysis', 'Code Churn', 'pydriller', 'git-spark'),
-  m('Code Quality', 'Technical Debt', 'pydriller'),
-  m('Code Quality', 'Test Coverage', 'nyc-mocha'),
-  m('Compliance Testing', 'Secret Detection', 'gitleaks'),
+  { ...m('Development Process Analysis', 'Code Churn', 'git-churn'), rowsOnly: true, rows: [
+    { classes: ['Risk-Based Testing Prioritization', 'Regression Testing Focus', 'Defect Prediction', 'Test Case Maintenance Identification', 'Change Impact Analysis'], primary: ['git-churn'], secondary: [] },
+  ] },
+  { ...m('Code Quality', 'Technical Debt', 'pydriller'), rowsOnly: true, rows: [
+    { classes: ['Code Churn in Performance-Critical Paths'], primary: ['pydriller'], secondary: [] },
+  ] },
+  { ...m('Code Quality', 'Test Coverage', 'nyc-mocha'), rowsOnly: true, rows: [
+    { classes: ['Performance Test Code Coverage'], primary: ['nyc-mocha'], secondary: [] },
+  ] },
+  { ...m('Static Code Analysis', 'Secret Detection', 'detect-secrets', 'gitleaks'), rowsOnly: true, rows: [
+    { classes: ['Hardcoded Secret Scan', 'Pre-Commit Secret Prevention'], primary: [], secondary: ['detect-secrets', 'gitleaks'] },
+  ] },
+  { ...m('Security Testing', 'Secret Detection', 'detect-secrets', 'gitleaks'), rowsOnly: true, rows: [
+    { classes: ['Hardcoded Secret Detection', 'Pre-Commit Secret Prevention', 'Secrets in Git History'], primary: [], secondary: ['detect-secrets', 'gitleaks'] },
+  ] },
+  { ...m('Control Flow Testing', 'Branch Coverage', 'js-boundary-decisions'), rowsOnly: true, rows: [
+    { classes: ['Edge Case Detection'], primary: ['js-boundary-decisions'], secondary: [] },
+  ] },
+  { ...m('Control Flow Testing', 'Path Coverage', 'js-path-coverage', 'nyc-mocha'), rowsOnly: true, rows: [
+    { classes: ['Complete Coverage Path Verification', 'Nested Condition Path Testing', 'Exception Path Handling', 'Multi-Function Path Tracking'], primary: ['js-path-coverage'], secondary: ['nyc-mocha'] },
+    { classes: ['Unreachable Path Detection', 'CI/CD Integration Test'], primary: ['nyc-mocha'], secondary: [] },
+  ] },
+  { ...m('Performance Testing', 'Static Analysis', 'lizard', 'semgrep-perf-static'), rowsOnly: true, rows: [
+    { classes: ['Complexity-Based Perf Risk'], primary: ['lizard'], secondary: [] },
+    { classes: ['Big-O Complexity Review', 'N+1 Query Pattern Detection', 'Memory Allocation Analysis', 'Thread-Safety Detection'], primary: ['semgrep-perf-static'], secondary: [] },
+  ] },
+  { ...m('Performance Testing', 'Dependency Analysis', 'javascript-perf-dependency'), rowsOnly: true, rows: [
+    { classes: ['Unused Dependency Detection', 'Circular Dependency Detection', 'Build Time Regression'], primary: ['javascript-perf-dependency'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'), rowsOnly: true, rows: [
+    { classes: ['PII in Codebase Detection'], primary: ['presidio'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'), rowsOnly: true, rows: [
+    { classes: ['PII in Log Statements'], primary: ['semgrep-pii'], secondary: [] },
+  ] },
 ];
 
 const TS: TechniqueTool[] = [
-  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'cccc'), rows: [{ classes: ['Condition Coverage', 'Logic Coverage Metric'], primary: ['lizard'], secondary: ['debtmap'] }] },
-  m('Readability / Maintainability', 'Cognitive Complexity', 'ts-eslint-sonarjs', 'cccc'),
-  m('Code Quality Auditing', 'Code Duplication', 'jscpd-ts', 'reson'),
-  m('Static Code Analysis', 'Lint / Rule Violations', 'biome', 'oxlint'),
-  m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'ts-eslint-security', 'bearer-cli'),
-  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'cdxgen', 'cve-lite-cli'), rowsOnly: true, rows: [
-    { classes: ['Transitive Dependency Analysis'], primary: ['cdxgen'], secondary: ['cve-lite-cli'] },
-    { classes: ['License Compliance Testing'], primary: ['cdxgen'], secondary: ['license-checker'] }, // ORT (cdxgen license proxy)
-    { classes: ['Supply Chain Security Analysis'], primary: ['osv-scanner-ts'], secondary: ['sigstore-cli'] },
-    { classes: ['Dependency Health Monitoring'], primary: ['github-vitality', 'npm-view'], secondary: ['nodesecure-cli'] }, // GitHub API + npm downloads API
-    { classes: ['Risk Prioritization'], primary: ['grype'], secondary: ['cve-lite-cli'] },
-    { classes: ['Continuous Dependency Monitoring'], primary: ['dependabot'], secondary: ['cve-lite-cli'] },
-    { classes: ['Vulnerability Dependency Detection'], primary: ['osv-scanner-ts'], secondary: ['cve-lite-cli'] },
-    { classes: ['Outdated Dependency Detection'], primary: ['ncu'], secondary: ['cve-lite-cli'] },
+  // TypeScript mapping from TypeScript_Primary_Secondary_Tools_by_Technique.md, platform qa ae5ad4fd3 (13 Nov 2026): primary / secondary per classification as the platform code reads them. Several primaries = combined (all must run); primary [] = only the listed co-providers are checked.
+  { ...m('Structural Analysis', 'Cyclomatic Complexity', 'lizard', 'vitest-coverage', 'nyc-mocha', 'ts-condition-probe', 'ts-eslint-sonarjs'), rowsOnly: true, rows: [
+    { classes: ['Static Analysis Metric'], primary: ['lizard'], secondary: [] },
+    { classes: ['Decision Coverage'], primary: ['vitest-coverage'], secondary: ['nyc-mocha'] },
+    { classes: ['Condition Coverage'], primary: ['ts-condition-probe'], secondary: ['vitest-coverage'] },
+    { classes: ['Logic Coverage Metric'], primary: ['ts-condition-probe'], secondary: [] },
+    { classes: ['Maintainability Analysis'], primary: ['ts-eslint-sonarjs'], secondary: [] },
+    { classes: ['Test Prioritization'], primary: ['lizard'], secondary: ['ts-eslint-sonarjs'] },
   ] },
-  m('Control Flow Testing', 'Statement Coverage', 'vitest-coverage', 'monocart-coverage-reports'),
-  m('Control Flow Testing', 'Branch Coverage', 'vitest-coverage', 'oxc-coverage-instrument'),
-  { ...m('Control Flow Testing', 'Path Coverage', 'vitest-coverage', 'monocart-coverage-reports'), tryFirst: 'ts-path-coverage', rowsOnly: true, rows: [
-    { classes: ['Path Execution Tracking', 'Unreachable Path Detection'], primary: ['vitest-coverage'], secondary: ['monocart-coverage-reports'] },
-    { classes: ['Complete Coverage Path Verification'], primary: ['opentelemetry'], secondary: ['mewt'] }, // @opentelemetry/sdk-node
-    { classes: ['Partial Path Coverage Detection', 'Loop Path Detection'], primary: ['fast-check'], secondary: ['mewt'] },
-    { classes: ['Nested Condition Path Testing'], primary: ['vitest-coverage'], secondary: ['mewt'] },
-    { classes: ['Exception Path Handling'], primary: ['knip'], secondary: ['mewt'] },
-    { classes: ['Multi-Function Path Tracking'], primary: ['ts-eslint-security'], secondary: ['tracegraph'] },
-    { classes: ['CI/CD Integration Test'], primary: ['dependency-cruiser-ts'], secondary: ['mewt'] },
-    { classes: ['Path Detection Testing'], primary: ['eslint', 'ts-eslint-sonarjs'], secondary: ['monocart-coverage-reports'] }, // eslint + eslint-plugin-sonarjs
+  { ...m('Readability / Maintainability', 'Cognitive Complexity', 'ts-eslint-sonarjs', 'lizard', 'git-churn'), rowsOnly: true, rows: [
+    { classes: ['Maintainability Evaluation', 'Refactoring Guidance', 'Code Review Support', 'Code Understandability Analysis'], primary: ['ts-eslint-sonarjs'], secondary: [] },
+    { classes: ['Testing Effort Prioritization'], primary: ['lizard'], secondary: ['ts-eslint-sonarjs'] },
+    { classes: ['Testability Analysis'], primary: ['ts-eslint-sonarjs'], secondary: ['lizard'] },
+    { classes: ['Risk Detection'], primary: ['git-churn'], secondary: ['ts-eslint-sonarjs'] },
   ] },
-  m('Mutation Testing', 'Mutation Score', 'stryker-ts', 'mewt'),
-  m('Test Regression/Coverage Analysis', 'Coverage Delta', 'ts-coverage-delta', 'diff-cover'),
+  { ...m('Code Quality Auditing', 'Code Duplication', 'jscpd-ts'), rowsOnly: true, rows: [
+    { classes: ['Defect Propagation Risk Detection', 'Refactoring Identification', 'Code Quality Assessment', 'Test Maintenance Reduction', 'Refactoring Opportunity Detection', 'Risk-Based Testing Prioritization', 'Maintainability Testing'], primary: ['jscpd-ts'], secondary: [] },
+  ] },
+  { ...m('Static Code Analysis', 'Lint / Rule Violations', 'ts-eslint-sonarjs'), rowsOnly: true, rows: [
+    { classes: ['Rule Detection Test', 'Unused Variable Detection', 'Naming Convention Validation', 'Code Style Rule Validation', 'Complexity Rule Detection', 'Rule Severity Classification', 'Multiple Violations Detection', 'False Positive Prevention', 'Custom Rule Validation', 'Configuration File Handling', 'CI/CD Integration Validation', 'Violation Reporting Validation'], primary: ['ts-eslint-sonarjs'], secondary: [] },
+  ] },
+  { ...m('Security White-box Testing', 'Static Vulnerabilities (SAST)', 'semgrep', 'ts-eslint-sonarjs', 'pnpm-audit'), rowsOnly: true, rows: [
+    { classes: ['Secure Coding Validation', 'Data Flow Security Analysis'], primary: ['semgrep'], secondary: ['ts-eslint-sonarjs'] },
+    { classes: ['Input Validation Testing', 'Authentication & Authorization Weakness Detection', 'Security Vulnerability Detection'], primary: ['semgrep'], secondary: [] },
+    { classes: ['Dependency & Library Vulnerability Detection'], primary: ['pnpm-audit'], secondary: [] },
+  ] },
+  { ...m('Security White-box Testing', 'Dependency Risk (SCA)', 'pnpm-audit', 'osv-scanner-ts', 'license-checker-ts', 'osv-scanner'), rowsOnly: true, rows: [
+    { classes: ['Transitive Dependency Analysis', 'Supply Chain Security Analysis'], primary: ['pnpm-audit'], secondary: ['osv-scanner-ts'] },
+    { classes: ['License Compliance Testing'], primary: ['license-checker-ts'], secondary: [] },
+    { classes: ['Dependency Health Monitoring', 'Outdated Dependency Detection'], primary: ['pnpm-audit'], secondary: [] },
+    { classes: ['Vulnerability Dependency Detection'], primary: ['osv-scanner-ts'], secondary: ['osv-scanner'] },
+  ] },
+  { ...m('Control Flow Testing', 'Statement Coverage', 'vitest-coverage', 'nyc-mocha', 'ts-path-coverage'), rowsOnly: true, rows: [
+    { classes: ['Unit Testing Support', 'Test Completeness Evaluation', 'Code Execution Verification'], primary: ['vitest-coverage'], secondary: ['nyc-mocha'] },
+    { classes: ['Dead Code Detection'], primary: ['vitest-coverage'], secondary: ['nyc-mocha', 'ts-path-coverage'] },
+    { classes: ['Basic Logic Validation'], primary: ['vitest-coverage'], secondary: [] },
+  ] },
+  { ...m('Control Flow Testing', 'Branch Coverage', 'vitest-coverage', 'nyc-mocha', 'ts-condition-probe'), rowsOnly: true, rows: [
+    { classes: ['Conditional Logic Testing', 'Control Flow Validation', 'Test Case Completeness', 'Decision Outcome Verification'], primary: ['vitest-coverage'], secondary: ['nyc-mocha'] },
+    { classes: ['Loop Condition Testing'], primary: ['ts-condition-probe'], secondary: ['vitest-coverage', 'nyc-mocha'] },
+    { classes: ['Edge Case Detection'], primary: ['ts-condition-probe'], secondary: [] },
+  ] },
+  { ...m('Control Flow Testing', 'Path Coverage', 'ts-path-coverage', 'vitest-coverage'), rowsOnly: true, rows: [
+    { classes: ['Path Execution Tracking', 'Complete Coverage Path Verification', 'Partial Path Coverage Detection', 'Nested Condition Path Testing', 'Loop Path Detection', 'Exception Path Handling', 'Multi-Function Path Tracking', 'CI/CD Integration Test', 'Path Detection Testing'], primary: ['ts-path-coverage'], secondary: [] },
+    { classes: ['Unreachable Path Detection'], primary: ['ts-path-coverage'], secondary: ['vitest-coverage'] },
+  ] },
+  { ...m('Mutation Testing', 'Mutation Score', 'stryker-ts', 'vitest-coverage', 'nyc-mocha'), rowsOnly: true, rows: [
+    { classes: ['Fault Detection Capability', 'Test Case Improvement Identification', 'Edge Case Detection', 'Regression Testing Validation', 'Code Logic Validation', 'Test Suite Effectiveness Evaluation'], primary: ['stryker-ts'], secondary: [] },
+    { classes: ['Test Coverage Quality Validation'], primary: ['vitest-coverage'], secondary: ['nyc-mocha', 'stryker-ts'] },
+  ] },
+  { ...m('Test Regression/Coverage Analysis', 'Coverage Delta', 'ts-coverage-delta', 'stryker-ts'), rowsOnly: true, rows: [
+    { classes: ['Regression Testing Monitoring', 'CI/CD Quality Gate Enforcement', 'New Code Testing Validation', 'Quality Improvement Measurement'], primary: ['ts-coverage-delta'], secondary: [] },
+    { classes: ['Test Suite Effectiveness Tracking', 'Change Impact Analysis'], primary: ['stryker-ts'], secondary: [] },
+  ] },
+  { ...m('Development Process Analysis', 'Code Churn', 'ts-coverage-delta', 'git-churn'), rowsOnly: true, rows: [
+    { classes: ['Risk-Based Testing Prioritization', 'Regression Testing Focus'], primary: ['ts-coverage-delta'], secondary: [] },
+    { classes: ['Defect Prediction', 'Test Case Maintenance Identification', 'Change Impact Analysis'], primary: ['git-churn'], secondary: [] },
+  ] },
   { ...m('Data Flow Testing', 'All Definition Coverage', 'ts-all-defs-uses'), rowsOnly: true, rows: [
-    { classes: ['Variable Definition Detection', 'Definition-Use Mapping'], primary: ['ts-all-defs-uses'], secondary: ['ts-unused-exports'] },
-    { classes: ['Coverage Measurement'], primary: ['ts-all-defs-uses'], secondary: ['red-dragon', 'oxc-coverage-instrument'] },
-    { classes: ['Uncovered Definition Detection'], primary: ['ts-all-defs-uses'], secondary: ['ts-unused-exports'] },
-    { classes: ['Edge Case Handling'], primary: ['ts-all-defs-uses'], secondary: ['opengrep'] },
-    { classes: ['Reporting Validation'], primary: ['ts-all-defs-uses'], secondary: ['ts-unused-exports'] },
+    { classes: ['Variable Definition Detection', 'Definition-Use Mapping', 'Coverage Measurement', 'Uncovered Definition Detection', 'Edge Case Handling', 'Reporting Validation'], primary: ['ts-all-defs-uses'], secondary: [] },
   ] },
   { ...m('Data Flow Testing', 'All Uses Coverage', 'ts-all-defs-uses'), rowsOnly: true, rows: [
-    { classes: ['Computational Use Detection (C-Use)', 'Predicate Use Detection (P-Use)', 'Definition-Use Pair Identification'], primary: ['ts-all-defs-uses'], secondary: ['red-dragon'] },
-    { classes: ['All-Uses Coverage Verification', 'Partial Uses Coverage Detection'], primary: ['ts-all-defs-uses'], secondary: ['ts-unused-exports'] },
-    { classes: ['Multiple Definitions Handling', 'Cross-Function Use Detection'], primary: ['ts-all-defs-uses'], secondary: ['red-dragon'] },
-    { classes: ['Unreachable Use Detection', 'Coverage Reporting Validation', 'Variable Use Detection'], primary: ['ts-all-defs-uses'], secondary: ['ts-unused-exports'] },
+    { classes: ['Computational Use Detection (C-Use)', 'Predicate Use Detection (P-Use)', 'Definition-Use Pair Identification', 'All-Uses Coverage Verification', 'Partial Uses Coverage Detection', 'Multiple Definitions Handling', 'Cross-Function Use Detection', 'Unreachable Use Detection', 'Coverage Reporting Validation', 'Variable Use Detection'], primary: ['ts-all-defs-uses'], secondary: [] },
   ] },
-  { ...m('Development Process Analysis', 'Code Churn', 'pydriller', 'git-hot'), rows: [{ classes: ['Test Case Maintenance Identification', 'Change Impact Analysis'], primary: ['pydriller'], secondary: ['covgate'] }] },
-  m('Code Quality', 'Technical Debt', 'pydriller'),
-  m('Code Quality', 'Test Coverage', 'vitest-coverage'),
-  m('Compliance Testing', 'Secret Detection', 'gitleaks'),
+  { ...m('Performance Testing', 'Static Analysis', 'lizard', 'semgrep-perf-static'), rowsOnly: true, rows: [
+    { classes: ['Complexity-Based Perf Risk'], primary: ['lizard'], secondary: [] },
+    { classes: ['Big-O Complexity Review', 'N+1 Query Pattern Detection', 'Memory Allocation Analysis', 'Thread-Safety Detection'], primary: ['semgrep-perf-static'], secondary: [] },
+  ] },
+  { ...m('Performance Testing', 'Dependency Analysis', 'typescript-perf-dependency'), rowsOnly: true, rows: [
+    { classes: ['Unused Dependency Detection', 'Circular Dependency Detection', 'Build Time Regression'], primary: ['typescript-perf-dependency'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'Student PII Exposure Scan', 'presidio'), rowsOnly: true, rows: [
+    { classes: ['PII in Codebase Detection'], primary: ['presidio'], secondary: [] },
+  ] },
+  { ...m('FERPA/COPPA Compliance', 'PII Logging Detection', 'semgrep-pii'), rowsOnly: true, rows: [
+    { classes: ['PII in Log Statements'], primary: ['semgrep-pii'], secondary: [] },
+  ] },
 ];
 
 const CS: TechniqueTool[] = [
