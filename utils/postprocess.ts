@@ -1,3 +1,4 @@
+import { jiraStep } from './jiraFile';
 import * as fs from 'fs';
 import * as path from 'path';
 import './env'; // loads .env (the background worker is its own process)
@@ -65,7 +66,7 @@ export async function shareBranch(branchDir: string): Promise<{ skipped: boolean
 }
 
 export async function runPostProcess(job: PostJob): Promise<boolean> {
-  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', rcareport: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
+  const st: PostState = { state: 'running', steps: { eks: 'pending', s3: 'pending', rca: 'pending', history: 'pending', rcareport: 'pending', jira: 'pending', sharepoint: 'pending', teams: 'pending' }, detail: {}, updated: '' };
   const save = () => { st.updated = new Date().toISOString(); writePostState(job.branchDir, st); };
   // a short network / DNS outage must not lose the whole branch: network-type failures are retried after 30 s, 90 s and 3 min
   const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|fetch failed|network|socket hang up|timed? ?out|HTTP 5\d\d|HTTP 429/i;
@@ -135,6 +136,9 @@ export async function runPostProcess(job: PostJob): Promise<boolean> {
     console.log(`  RCA Report: ${rows.length} tool report(s): ${rows.length - red.length} green, ${red.length} red (${nt} not triggered); ${m} of the red worded by the model${slow ? ` (${red.length - m} by rules: ${String(slow.note).slice(0, 110)})` : ''}`);
     return `${rows.length} report(s) in "${RCA_DIR}": ${rows.length - red.length} green, ${red.length} red, ${m} by the model`;
   });
+  // Jira: is each platform bug of this run already in an OPEN ticket (local copy of the project's open bugs)? comment on it / create one new bug / leave it to a person.
+  // JIRA_MODE=off|dry (default: plan only, nothing sent)|ask (a person applies it: npm run jira:apply)|auto. Runs after the RCA reports so they can be attached.
+  await step('jira', async () => { if (noData) return 'skipped'; return await jiraStep(job.branchDir, (m) => console.log(`  ${m}`)); });
   await refreshTimingWorkbook(job.branchDir).catch(() => {}); // so the copy uploaded below already has the eks / s3 / history times
   let evidenceUrl: string | undefined;
   await step('sharepoint', async () => { if (noData) return 'skipped'; const r = await shareBranch(job.branchDir); evidenceUrl = r.url; if (r.skipped) return 'skipped'; });

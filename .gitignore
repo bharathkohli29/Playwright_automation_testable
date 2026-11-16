@@ -31,3 +31,6 @@ __pycache__/
 
 # the script's own read-only copy of the platform code (RCA Report)
 .rca-code/
+
+# local copy of the Jira project's open bugs + what the script already logged
+jira-cache/

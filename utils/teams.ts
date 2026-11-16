@@ -1,3 +1,4 @@
+import { jiraCardLine } from './jiraFile';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
@@ -68,6 +69,7 @@ export function toolSummary(dir?: string, noteMax = 70, withPrev = true): unknow
       if (lines.length) out.push({ type: 'TextBlock', text: `❌ ${defects.length} tool bug${defects.length > 1 ? 's' : ''} (draft reports saved):\n\n${lines.join('\n\n')}`, wrap: true, spacing: 'None', color: 'Attention' });
       if (noBug.length) out.push({ type: 'TextBlock', text: `✅ Not triggered, no bug: ${noBug.slice(0, 8).map((n) => `${n.tool}${n.why ? ` (${n.why})` : ''}`).join('; ')}${noBug.length > 8 ? ' …' : ''}`, wrap: true, spacing: 'None', isSubtle: true });
       if (repo.length) out.push({ type: 'TextBlock', text: `⚠ Repo-side failures (not platform bugs): ${repo.slice(0, 8).join(', ')}`, wrap: true, spacing: 'None', isSubtle: true });
+      { const jl = jiraCardLine(dir); if (jl) out.push({ type: 'TextBlock', text: jl, wrap: true, spacing: 'None', isSubtle: true }); }
       out.push(...log);
     }
     // the webhook accepts about 28 KB: shorten the detail text, then drop it, then drop the earlier-run columns, when the tables get too long
